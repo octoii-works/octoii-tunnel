@@ -10,6 +10,7 @@ import {
 	FINAL_CLOSE_CODES,
 	FRAME_TYPE,
 	type Frame,
+	type FrameType,
 	isCredential,
 	isDeviceId,
 	parseRelayOrigin,
@@ -18,7 +19,8 @@ import {
 import { reconnectDelay, STABLE_CONNECTION } from "./backoff.ts";
 import { ConnectorConnection } from "./connection.ts";
 import type { Device } from "./device.ts";
-import { type Handler, ServedHttpStream, type ServedStreamLink } from "./http-stream.ts";
+import { type Handler, ServedHttpStream } from "./http-stream.ts";
+import { ServedWebSocketStream, type WebSocketHandler } from "./websocket-stream.ts";
 
 /** How a connector is set up. */
 export type ConnectorOptions = {
@@ -27,6 +29,8 @@ export type ConnectorOptions = {
 	readonly device: Device;
 	/** Answers each visitor's request. */
 	readonly handler: Handler;
+	/** Accepts or refuses each visitor's WebSocket; without it, WebSockets are refused. */
+	readonly websocket?: WebSocketHandler;
 	/** Hears about failures the connector recovers from or stops on. */
 	readonly onError?: (error: Error) => void;
 };
@@ -45,7 +49,7 @@ export class Connector {
 	private readonly options: ConnectorOptions;
 	private readonly url: string;
 	private readonly address: string;
-	private readonly streams = new Map<number, ServedHttpStream>();
+	private readonly streams = new Map<number, ServedHttpStream | ServedWebSocketStream>();
 	private connection: ConnectorConnection | undefined;
 	private connectedAt = 0;
 	private attempt = 0;
@@ -115,21 +119,24 @@ export class Connector {
 			return;
 		}
 		if (this.streams.size >= connection.limits.maxStreams) return this.trySend(connection, frame.stream, "Too many streams");
-		const stream = new ServedHttpStream(frame.stream, decodeOpen(frame.payload), this.linkFor(connection));
+		const open = decodeOpen(frame.payload);
+		const link = this.linkFor(connection);
+		const stream = open.kind === "http" ? new ServedHttpStream(frame.stream, open, link) : new ServedWebSocketStream(frame.stream, open, link);
 		this.streams.set(stream.id, stream);
-		this.startSweep(connection);
+		if (stream instanceof ServedHttpStream) this.startSweep(connection);
 		stream.start();
 	}
 
-	private linkFor(connection: ConnectorConnection): ServedStreamLink {
+	private linkFor(connection: ConnectorConnection) {
 		return {
 			limits: connection.limits,
 			address: this.address,
 			handler: this.options.handler,
-			send: (type, stream, payload) => connection.send(type, stream, payload),
-			done: (stream) => {
+			websocket: this.options.websocket,
+			send: (type: FrameType, stream: number, payload?: Uint8Array) => connection.send(type, stream, payload),
+			done: (stream: ServedHttpStream | ServedWebSocketStream) => {
 				this.streams.delete(stream.id);
-				if (this.streams.size === 0) this.stopSweep();
+				if (![...this.streams.values()].some((candidate) => candidate instanceof ServedHttpStream)) this.stopSweep();
 			},
 		};
 	}
@@ -143,13 +150,15 @@ export class Connector {
 		}
 	}
 
-	/** Resets idle streams, checking every quarter of `streamIdle` while any stream is open. */
+	/** Resets idle HTTP streams, checking every quarter of `streamIdle` while any is open. */
 	private startSweep(connection: ConnectorConnection): void {
 		if (this.sweep !== undefined) return;
 		const { streamIdle } = connection.limits;
 		this.sweep = setInterval(() => {
 			const now = Date.now();
-			for (const stream of this.streams.values()) if (stream.idleAt(now, streamIdle)) stream.reset("idle", "The stream was idle");
+			for (const stream of this.streams.values()) {
+				if (stream instanceof ServedHttpStream && stream.idleAt(now, streamIdle)) stream.reset("idle", "The stream was idle");
+			}
 		}, streamIdle / 4);
 	}
 

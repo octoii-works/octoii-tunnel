@@ -76,9 +76,10 @@ Either way you need a wildcard domain (`*.<your domain>`) and the bare domain po
 
 ## Status
 
-Under construction. Built: registration, the connector connection with reconnects, and plain HTTP streams, on a
-single Bun process with an in-memory store. Being built, in order: the protocol package and the restructured relay and
-client, visitor WebSockets, the SQLite and Durable Object hosts with hibernation, then pairing and secure channels.
+Under construction. Built: the protocol package; registration; the connector with heartbeats and reconnects; plain
+HTTP streams and visitor WebSockets under flow control; sessions that resume from their sockets; and the Bun host with
+SQLite. Being built, in order: the Durable Object host with hibernation, then pairing and secure channels, then the
+`takotunnel` command.
 
 ## License
 

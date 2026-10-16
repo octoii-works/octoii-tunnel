@@ -4,11 +4,11 @@ import {
 	IncomingBody,
 	MAX_MESSAGE_SIZE,
 	MessageAssembler,
+	MessageSender,
 	ProtocolError,
 	ReceiveCredit,
 	SendCredit,
 	sendBody,
-	splitMessage,
 } from "../src/index.ts";
 
 describe("send credit", () => {
@@ -81,18 +81,30 @@ describe("sending a body", () => {
 });
 
 describe("messages", () => {
-	test("split by chunk size and come back whole, text and binary", () => {
+	test("are sent in chunks that fit a frame with their flags byte, and come back whole", async () => {
+		const credit = new SendCredit(1 << 20);
 		const assembler = new MessageAssembler();
-		const text = "🐙".repeat(1000);
-		const chunks = splitMessage({ binary: false, text }, 100);
-		expect(chunks.length).toBe(Math.ceil(encodeUtf8(text).length / 100));
-		const results = chunks.map((chunk) => assembler.add(chunk));
-		expect(results.at(-1)).toEqual({ binary: false, text });
-		expect(results.slice(0, -1).every((result) => result === undefined)).toBe(true);
-		expect(assembler.add(splitMessage({ binary: true, bytes: new Uint8Array(0) }, 100)[0] ?? { binary: true, more: false, bytes: new Uint8Array(0) })).toEqual({
-			binary: true,
-			bytes: new Uint8Array(0),
-		});
+		const results: unknown[] = [];
+		const sizes: number[] = [];
+		const sender = new MessageSender(
+			credit,
+			100,
+			(chunk) => {
+				sizes.push(chunk.bytes.length);
+				results.push(assembler.add(chunk));
+			},
+			() => undefined,
+		);
+		const text = "🐙".repeat(100);
+		sender.enqueue({ binary: false, text });
+		sender.enqueue({ binary: true, bytes: new Uint8Array(0) });
+		await Bun.sleep(1);
+		expect(sizes).toEqual([99, 99, 99, 99, 4, 0]);
+		expect(results.filter((result) => result !== undefined)).toEqual([
+			{ binary: false, text },
+			{ binary: true, bytes: new Uint8Array(0) },
+		]);
+		expect(encodeUtf8(text).length).toBe(400);
 	});
 
 	test("refuse a message that changes type or grows too large", () => {

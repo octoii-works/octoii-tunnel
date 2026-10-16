@@ -185,3 +185,92 @@ describe("connectors", () => {
 		expect((await visit(relay, device, "/")).status).toBe(404);
 	});
 });
+
+/** A visitor's WebSocket to the device, through the relay with the device's host. */
+function openVisitorSocket(relay: Running, device: Device, path: string, protocols: string[] = []): Promise<WebSocket> {
+	const socket = new WebSocket(`ws://127.0.0.1:${relay.port}${path}`, {
+		headers: { host: `${device.deviceId}.localhost:${relay.port}`, ...(protocols.length === 0 ? {} : { "sec-websocket-protocol": protocols.join(", ") }) },
+	});
+	socket.binaryType = "arraybuffer";
+	cleanups.push(() => socket.close());
+	return new Promise((resolve, reject) => {
+		socket.addEventListener("open", () => resolve(socket), { once: true });
+		socket.addEventListener("error", () => reject(new Error("The WebSocket failed")), { once: true });
+	});
+}
+
+function nextMessage(socket: WebSocket): Promise<string | Uint8Array> {
+	return new Promise((resolve) =>
+		socket.addEventListener("message", (event) => resolve(typeof event.data === "string" ? event.data : new Uint8Array(event.data)), { once: true }),
+	);
+}
+
+function nextClose(socket: WebSocket): Promise<number> {
+	return new Promise((resolve) => socket.addEventListener("close", (event) => resolve(event.code), { once: true }));
+}
+
+describe("visitor WebSockets", () => {
+	test("echo text and binary messages, larger than a frame, on the subprotocol the service chose", async () => {
+		const relay = startRelay();
+		const device = await registerDevice({ relay: relay.origin, token: TOKEN });
+		const connector = connectDevice({
+			relay: relay.origin,
+			device,
+			handler: () => new Response("plain"),
+			websocket: (_request, accept) => {
+				const socket = accept("chat.v2");
+				socket.onmessage = (message) => socket.send(message);
+			},
+		});
+		cleanups.push(() => connector.close());
+		await connector.ready;
+		const visitor = await openVisitorSocket(relay, device, "/live", ["chat.v1", "chat.v2"]);
+		expect(visitor.protocol).toBe("chat.v2");
+		visitor.send("hello 🐙");
+		expect(await nextMessage(visitor)).toBe("hello 🐙");
+		const bytes = crypto.getRandomValues(new Uint8Array(300_000));
+		visitor.send(bytes);
+		expect(await nextMessage(visitor)).toEqual(bytes);
+	});
+
+	test("are refused with the status the service gives", async () => {
+		const relay = startRelay();
+		const device = await registerDevice({ relay: relay.origin, token: TOKEN });
+		await startConnector(relay, device, () => new Response("plain"));
+		const response = await visit(relay, device, "/live", {
+			headers: { upgrade: "websocket", connection: "Upgrade", "sec-websocket-version": "13", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==" },
+		});
+		expect(response.status).toBe(501);
+	});
+
+	test("pass close codes both ways, and close with 1011 when the connector goes away", async () => {
+		const relay = startRelay();
+		const device = await registerDevice({ relay: relay.origin, token: TOKEN });
+		const closes: number[] = [];
+		const connector = connectDevice({
+			relay: relay.origin,
+			device,
+			handler: () => new Response("plain"),
+			websocket: (_request, accept) => {
+				const socket = accept();
+				socket.onclose = (code) => closes.push(code);
+				socket.onmessage = (message) => {
+					if (message === "bye") socket.close(4100, "service says bye");
+				};
+			},
+		});
+		cleanups.push(() => connector.close());
+		await connector.ready;
+		const first = await openVisitorSocket(relay, device, "/a");
+		first.send("bye");
+		expect(await nextClose(first)).toBe(4100);
+		const second = await openVisitorSocket(relay, device, "/b");
+		second.close(4200, "visitor says bye");
+		for (let attempt = 0; attempt < 50 && closes.length < 2; attempt++) await Bun.sleep(10);
+		expect(closes).toEqual([4100, 4200]);
+		const third = await openVisitorSocket(relay, device, "/c");
+		const closed = nextClose(third);
+		connector.close();
+		expect(await closed).toBe(1011);
+	});
+});

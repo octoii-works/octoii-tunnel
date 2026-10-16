@@ -3,7 +3,7 @@
  * development, tests, and a relay on a single machine.
  */
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
-import { FRAME_HEADER_SIZE, MAX_FRAME_SIZE } from "@klein-works/takotunnel-protocol";
+import { MAX_MESSAGE_SIZE } from "@klein-works/takotunnel-protocol";
 import { errorResponse } from "../hooks.ts";
 import type { Clock, RelayHost, RelayOptions, SessionSocket, SocketAttachment } from "../host.ts";
 import { createRelay } from "../router.ts";
@@ -16,8 +16,8 @@ export type BunRelayOptions = RelayOptions & {
 	readonly database: string;
 };
 
-/** What Bun keeps on each WebSocket. */
-type SocketData = { readonly deviceId: string; socket?: BunSessionSocket };
+/** What Bun keeps on each WebSocket: its device, what its session attached at the upgrade, and its wrapper. */
+type SocketData = { readonly deviceId: string; readonly attachment: SocketAttachment; socket?: BunSessionSocket };
 
 /** A session and its open sockets. */
 type Entry = { readonly session: DeviceSession; readonly sockets: Set<BunSessionSocket> };
@@ -33,10 +33,11 @@ const CLOCK: Clock = {
 /** A Bun WebSocket as a session uses it. */
 class BunSessionSocket implements SessionSocket {
 	private readonly socket: ServerWebSocket<SocketData>;
-	private kept: SocketAttachment | undefined;
+	private kept: SocketAttachment;
 
 	constructor(socket: ServerWebSocket<SocketData>) {
 		this.socket = socket;
+		this.kept = socket.data.attachment;
 	}
 
 	send(bytes: Uint8Array): void {
@@ -55,7 +56,7 @@ class BunSessionSocket implements SessionSocket {
 		return this.socket.getBufferedAmount();
 	}
 
-	attachment(): SocketAttachment | undefined {
+	attachment(): SocketAttachment {
 		return this.kept;
 	}
 
@@ -85,7 +86,8 @@ export function createBunRelay(options: BunRelayOptions) {
 	};
 
 	const websocket: WebSocketHandler<SocketData> = {
-		maxPayloadLength: FRAME_HEADER_SIZE + MAX_FRAME_SIZE,
+		// Visitors' messages may be this large; connector frames are checked against the limits by the session.
+		maxPayloadLength: MAX_MESSAGE_SIZE,
 		perMessageDeflate: false,
 		open(socket) {
 			const wrapped = new BunSessionSocket(socket);
@@ -100,12 +102,12 @@ export function createBunRelay(options: BunRelayOptions) {
 			const data = typeof message === "string" ? message : new Uint8Array(message);
 			void entryOf(socket.data.deviceId).session.message(wrapped, data);
 		},
-		close(socket) {
+		close(socket, code, reason) {
 			const wrapped = socket.data.socket;
 			const entry = entries.get(socket.data.deviceId);
 			if (wrapped === undefined || entry === undefined) return;
 			entry.sockets.delete(wrapped);
-			entry.session.closed(wrapped);
+			entry.session.closed(wrapped, code, reason);
 		},
 	};
 
@@ -116,7 +118,12 @@ export function createBunRelay(options: BunRelayOptions) {
 			const entry = entryOf(deviceId);
 			const response = await entry.session.fetch(request, {
 				address: server.requestIP(original)?.address ?? "",
-				acceptConnector: () => (server.upgrade(original, { data: { deviceId } }) ? undefined : errorResponse("invalid", "The upgrade failed")),
+				acceptWebSocket: (attachment, protocol) => {
+					const headers = protocol === undefined ? undefined : { "sec-websocket-protocol": protocol };
+					return server.upgrade(original, { data: { deviceId, attachment }, ...(headers === undefined ? {} : { headers }) })
+						? undefined
+						: errorResponse("invalid", "The upgrade failed");
+				},
 			});
 			if (devices.get(deviceId) === undefined && entry.sockets.size === 0) entries.delete(deviceId);
 			return response;

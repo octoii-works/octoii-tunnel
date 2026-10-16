@@ -23,7 +23,10 @@ export interface DeviceRecords {
 }
 
 /** What a session keeps on a socket so it can continue after the host suspends and wakes it. */
-export type SocketAttachment = {
+export type SocketAttachment = ConnectorAttachment | VisitorAttachment;
+
+/** What a session keeps on a connector connection. */
+export type ConnectorAttachment = {
 	readonly role: "connector";
 	/** Whether the connector authenticated on this socket. */
 	readonly authenticated: boolean;
@@ -32,6 +35,9 @@ export type SocketAttachment = {
 	/** When the relay sent `welcome`, which counts as the first heartbeat. */
 	readonly welcomedAt: number;
 };
+
+/** What a session keeps on a visitor's WebSocket: the stream it belongs to. */
+export type VisitorAttachment = { readonly role: "visitor"; readonly stream: number };
 
 /** A WebSocket as the session uses it. */
 export interface SessionSocket {
@@ -69,8 +75,11 @@ export type SessionHost = { readonly records: DeviceRecords; readonly sockets: S
 export type RequestContext = {
 	/** The visitor's address, as the host saw it. */
 	readonly address: string;
-	/** Upgrades the request to a WebSocket for a connector; the host calls `DeviceSession.opened` once it is open. */
-	acceptConnector(): Response | undefined;
+	/**
+	 * Upgrades the request to a WebSocket that carries `attachment` from the start, offering `protocol` when given; the
+	 * host calls `DeviceSession.opened` once it is open.
+	 */
+	acceptWebSocket(attachment: SocketAttachment, protocol?: string): Response | undefined;
 };
 
 /** A request the hooks are asked about. */
@@ -85,7 +94,7 @@ export type Decision = { readonly allowed: true } | { readonly allowed: false; r
 /** What `meter` receives as a stream or a connection ends. */
 export type MeterEvent = {
 	readonly deviceId: string;
-	readonly kind: "http" | "connection";
+	readonly kind: "http" | "websocket" | "connection";
 	/** Bytes from visitors to the device. */
 	readonly bytesIn: number;
 	/** Bytes from the device to visitors. */

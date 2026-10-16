@@ -3,7 +3,7 @@ import { ERROR_STATUS, type ErrorBody, type ErrorCode } from "@klein-works/takot
 import type { Authorization, Decision, MeterEvent, RelayOptions } from "./host.ts";
 
 /** An error response in the relay's format. */
-export function errorResponse(code: ErrorCode, message: string, headers?: HeadersInit): Response {
+export function errorResponse(code: ErrorCode, message: string, headers?: Readonly<Record<string, string>>): Response {
 	const body: ErrorBody = { error: { code, message } };
 	return Response.json(body, { status: ERROR_STATUS[code], ...(headers === undefined ? {} : { headers }) });
 }

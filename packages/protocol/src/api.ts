@@ -61,6 +61,7 @@ export const ERROR_STATUS = {
 	not_implemented: 501,
 	offline: 502,
 	busy: 503,
+	timeout: 504,
 } as const;
 
 /** An error code of the relay. */

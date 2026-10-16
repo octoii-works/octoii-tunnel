@@ -84,6 +84,32 @@ export class ReceiveCredit {
 	}
 }
 
+/**
+ * The credit a WebSocket stream's receiver granted. Each chunk's bytes are granted back as soon as the receiver has taken
+ * the chunk, so a quiet stream always holds its full credit, and a resumed session can start again from the initial
+ * credit.
+ */
+export class MessageCredit {
+	private outstanding: number;
+
+	/** Starts with `initial` credit granted. */
+	constructor(initial: number) {
+		this.outstanding = initial;
+	}
+
+	/** Counts `size` message bytes received; throws a `ProtocolError` when the sender went past its credit. */
+	receive(size: number): void {
+		if (size > this.outstanding) throw new ProtocolError("Message bytes beyond credit");
+		this.outstanding -= size;
+	}
+
+	/** Counts `size` bytes the receiver has taken, and says how much credit to grant now: all of it. */
+	take(size: number): number {
+		this.outstanding += size;
+		return size;
+	}
+}
+
 /** What an `IncomingBody` tells its stream. */
 export type IncomingBodyEvents = {
 	/** Grant the sender this much more credit. */

@@ -6,6 +6,7 @@ export { errorResponse } from "./hooks.ts";
 export type {
 	Authorization,
 	Clock,
+	ConnectorAttachment,
 	Decision,
 	DeviceRecord,
 	DeviceRecords,
@@ -17,6 +18,7 @@ export type {
 	SessionSocket,
 	SessionSockets,
 	SocketAttachment,
+	VisitorAttachment,
 } from "./host.ts";
 export { createRelay, type Relay } from "./router.ts";
 export { DeviceSession } from "./session.ts";

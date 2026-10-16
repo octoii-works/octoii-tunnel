@@ -23,7 +23,8 @@ All on the base domain, over HTTPS.
 - The address is `https://<device id>.<base domain>`.
 - A registration body is at most 4096 bytes; a name at most 128 characters.
 - Errors are JSON `{ "error": { "code", "message" } }`: `400 invalid`, `401 unauthorized`, `403 forbidden`,
-  `404 not_found`, `426 upgrade_required`, `429 quota`, `502 offline`, `503 busy`.
+  `404 not_found`, `426 upgrade_required`, `429 quota`, `501 not_implemented`, `502 offline`, `503 busy`,
+  `504 timeout`.
 
 ## Connector connection
 
@@ -96,16 +97,27 @@ directions have ended, or on `reset`. Trailers are not carried.
 
 ### WebSocket streams
 
-The relay sends `open` with `kind: "websocket"` and waits for `head` before it accepts the visitor's upgrade (or
-answers with the refusal's status). Then `message` frames flow both ways, and either side ends the stream with `end`
-carrying the WebSocket close code and reason. A WebSocket stream to `/.takotunnel/secure` is a secure channel, handled
-by the connector library itself.
+The relay sends `open` with `kind: "websocket"` and waits up to 30 seconds for `head` before it accepts the visitor's
+upgrade. A refusal answers the visitor with its status; no `head` in time resets the stream with `idle` and answers 504.
+Then `message` frames flow both ways, and either side ends the stream with `end` carrying the WebSocket close code and
+reason, which the other side passes on. A close without a code the protocol may carry (1005, 1006) is passed on as
+1001; a reason is cut to fit a close frame. A `reset`, or the connector connection dropping, closes the visitor's
+WebSocket with 1011. A WebSocket stream to `/.takotunnel/secure` is a secure channel, handled by the connector library
+itself.
+
+While the stream has no credit, the relay holds a visitor's messages, up to `MAX_MESSAGE_SIZE` plus `initialCredit`
+bytes; past that it closes the visitor's WebSocket with 1013.
 
 ### Flow control
 
 - On each stream, a side may send `data` and `message` payload bytes only within the credit the other side granted:
   `initialCredit` at `open`, plus every `credit` since. The receiver grants more as its consumer takes bytes, never
   beyond `initialCredit` outstanding.
+- On a WebSocket stream the credit counts message bytes, not the flags byte. The receiver grants each chunk's bytes
+  back as soon as it has taken the chunk (it holds a message whole, up to `MAX_MESSAGE_SIZE`, until the last chunk),
+  unless whoever it passes messages to is not keeping up: the relay holds its grants while the visitor's socket has
+  more than `initialCredit` bytes waiting. A quiet WebSocket stream therefore always holds its full credit, which lets
+  a host suspend the session and resume the stream with `initialCredit` both ways.
 - `open`, `head`, `end`, `reset` and `credit` need no credit.
 - No frame carries more than `maxFrame` payload bytes.
 - Each side also stops sending while its socket's own send buffer is full.

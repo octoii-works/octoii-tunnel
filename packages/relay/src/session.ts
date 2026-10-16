@@ -27,7 +27,8 @@ import {
 } from "@klein-works/takotunnel-protocol";
 import { authorize, errorResponse, meter, refusal } from "./hooks.ts";
 import type { RelayOptions, RequestContext, SessionHost, SessionSocket } from "./host.ts";
-import { HttpStream, type StreamLink } from "./http-stream.ts";
+import { HttpStream } from "./http-stream.ts";
+import { WebSocketStream, type WebSocketLink } from "./websocket-stream.ts";
 
 /** The most connector connections that may wait to authenticate at once. */
 const MAX_PENDING_CONNECTIONS = 4;
@@ -40,6 +41,9 @@ type Connector = { readonly socket: SessionSocket; readonly connectedAt: number;
 /** A connector connection that has not authenticated yet. */
 type Pending = { readonly cancelTimeout: () => void; authenticating: boolean };
 
+/** A stream of either kind. */
+type Stream = HttpStream | WebSocketStream;
+
 /** One device's session on the relay. */
 export class DeviceSession {
 	readonly deviceId: string;
@@ -48,8 +52,8 @@ export class DeviceSession {
 	private readonly limits: Limits;
 	private readonly origin: URL;
 	private readonly pending = new Map<SessionSocket, Pending>();
-	private readonly streams = new Map<number, HttpStream>();
-	private readonly link: StreamLink;
+	private readonly streams = new Map<number, Stream>();
+	private readonly link: WebSocketLink & { done: (stream: Stream) => void };
 	private connector: Connector | undefined;
 	private nextStream = 1;
 	private stopSweep: (() => void) | undefined;
@@ -67,21 +71,33 @@ export class DeviceSession {
 			limits: this.limits,
 			send: (type, stream, payload) => this.send(type, stream, payload),
 			now: () => this.host.clock.now(),
-			done: (stream) => this.streamDone(stream),
+			after: (delay, callback) => this.host.clock.after(delay, callback),
+			done: (stream: Stream) => this.streamDone(stream),
 		};
 	}
 
-	/** Rebuilds the session from the host's live sockets after the host woke it. */
+	/**
+	 * Rebuilds the session from the host's live sockets after the host woke it: the authenticated connector connection,
+	 * then each visitor's WebSocket, whose stream starts again with its full credit as a quiet stream has it.
+	 */
 	resume(): void {
-		for (const socket of this.host.sockets.live()) {
+		const sockets = this.host.sockets.live();
+		for (const socket of sockets) {
 			const attachment = socket.attachment();
-			if (attachment?.authenticated === true && this.connector === undefined) {
+			if (attachment?.role !== "connector") continue;
+			if (attachment.authenticated && this.connector === undefined) {
 				this.connector = { socket, connectedAt: attachment.welcomedAt, heartbeatAt: attachment.welcomedAt };
 				this.nextStream = attachment.nextStream;
 			} else {
 				// A connection that had not authenticated cannot continue safely; its connector reconnects.
 				socket.close(CLOSE_CODE.HELLO_TIMEOUT, "Authenticate again");
 			}
+		}
+		for (const socket of sockets) {
+			const attachment = socket.attachment();
+			if (attachment?.role !== "visitor") continue;
+			if (this.connector === undefined) socket.close(1011, "The device's connection ended");
+			else this.streams.set(attachment.stream, WebSocketStream.resumed(attachment.stream, socket, this.link));
 		}
 	}
 
@@ -90,20 +106,36 @@ export class DeviceSession {
 		const record = await this.host.records.get();
 		if (record === undefined || this.removed) return errorResponse("not_found", "Unknown device");
 		const url = new URL(request.url);
-		if (url.host !== this.origin.host) return this.visit(request, context.address);
+		if (url.host !== this.origin.host) return this.visit(request, context);
 		if (url.pathname === `/v1/devices/${this.deviceId}` && request.method === "DELETE") return this.remove(request, record.credentialHash);
 		if (url.pathname === `/v1/connect/${this.deviceId}` && request.method === "GET") return this.connect(request, context);
 		return errorResponse("not_found", "Unknown route");
 	}
 
-	/** A connector connection the host opened after `acceptConnector`; it has `HELLO_TIMEOUT` to authenticate. */
+	/**
+	 * A socket the host opened after `acceptWebSocket`: a connector connection, which has `HELLO_TIMEOUT` to
+	 * authenticate, or a visitor's WebSocket, which joins its stream.
+	 */
 	opened(socket: SessionSocket): void {
+		const attachment = socket.attachment();
+		if (attachment?.role === "visitor") {
+			const stream = this.streams.get(attachment.stream);
+			if (stream instanceof WebSocketStream) stream.attach(socket);
+			else socket.close(1011, "The stream ended");
+			return;
+		}
 		const cancelTimeout = this.host.clock.after(HELLO_TIMEOUT, () => this.close(socket, CLOSE_CODE.HELLO_TIMEOUT, "No hello in time"));
 		this.pending.set(socket, { cancelTimeout, authenticating: false });
 	}
 
 	/** Handles a message on one of the session's sockets. */
 	async message(socket: SessionSocket, data: Uint8Array | string): Promise<void> {
+		const attachment = socket.attachment();
+		if (attachment?.role === "visitor") {
+			const stream = this.streams.get(attachment.stream);
+			if (stream instanceof WebSocketStream) stream.fromVisitor(data);
+			return;
+		}
 		// Any message from the connector shows it is there, as a heartbeat does.
 		if (this.connector?.socket === socket) this.connector.heartbeatAt = this.host.clock.now();
 		if (typeof data === "string") return this.text(socket, data);
@@ -118,8 +150,14 @@ export class DeviceSession {
 		if (this.connector?.socket === socket) this.receive(frame);
 	}
 
-	/** One of the session's sockets closed. */
-	closed(socket: SessionSocket): void {
+	/** One of the session's sockets closed, with the close code and reason the host saw. */
+	closed(socket: SessionSocket, code = 1005, reason = ""): void {
+		const attachment = socket.attachment();
+		if (attachment?.role === "visitor") {
+			const stream = this.streams.get(attachment.stream);
+			if (stream instanceof WebSocketStream) stream.visitorClosed(code, reason);
+			return;
+		}
 		const pending = this.pending.get(socket);
 		if (pending !== undefined) {
 			pending.cancelTimeout();
@@ -158,15 +196,36 @@ export class DeviceSession {
 	private connect(request: Request, context: RequestContext): Response | undefined {
 		if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return errorResponse("upgrade_required", "A connector connects with a WebSocket");
 		if (this.pending.size >= MAX_PENDING_CONNECTIONS) return errorResponse("quota", "Too many connections waiting to authenticate");
-		return context.acceptConnector();
+		return context.acceptWebSocket({ role: "connector", authenticated: false, nextStream: 1, welcomedAt: 0 });
 	}
 
-	private async visit(request: Request, address: string): Promise<Response> {
-		if (request.headers.get("upgrade") !== null) return errorResponse("not_implemented", "Visitor WebSockets are not supported yet");
+	private async visit(request: Request, context: RequestContext): Promise<Response | undefined> {
 		const decision = await authorize(this.options, { kind: "visitor", deviceId: this.deviceId, request });
 		if (!decision.allowed) return refusal(decision, "Stream refused");
 		if (!this.connectorAlive()) return errorResponse("offline", "The device is offline");
 		if (this.streams.size >= this.limits.maxStreams) return errorResponse("busy", "Too many open streams", { "retry-after": "1" });
+		const upgrade = request.headers.get("upgrade");
+		if (upgrade === null) return this.visitHttp(request, context.address);
+		if (upgrade.toLowerCase() !== "websocket") return errorResponse("invalid", "Only WebSocket upgrades are carried");
+		return this.visitWebSocket(request, context);
+	}
+
+	private async visitWebSocket(request: Request, context: RequestContext): Promise<Response | undefined> {
+		const stream = new WebSocketStream(this.takeStreamId(), this.link);
+		this.streams.set(stream.id, stream);
+		try {
+			stream.start(request, context.address, this.origin);
+		} catch {
+			stream.fail(new Error("The stream could not be opened"));
+		}
+		const answer = await stream.answer;
+		if ("failed" in answer)
+			return answer.failed === "timeout" ? errorResponse("timeout", "The device did not answer") : errorResponse("offline", "The device is offline");
+		if (!answer.accept) return new Response("The device refused the WebSocket", { status: answer.status });
+		return context.acceptWebSocket({ role: "visitor", stream: stream.id }, answer.protocol);
+	}
+
+	private visitHttp(request: Request, address: string): Promise<Response> {
 		const stream = new HttpStream(this.takeStreamId(), request.method, this.link);
 		this.streams.set(stream.id, stream);
 		this.startSweep();
@@ -193,7 +252,7 @@ export class DeviceSession {
 		const id = this.nextStream++;
 		const connector = this.connector;
 		const attachment = connector?.socket.attachment();
-		if (connector !== undefined && attachment !== undefined) connector.socket.attach({ ...attachment, nextStream: this.nextStream });
+		if (connector !== undefined && attachment?.role === "connector") connector.socket.attach({ ...attachment, nextStream: this.nextStream });
 		return id;
 	}
 
@@ -259,26 +318,28 @@ export class DeviceSession {
 		connector.socket.send(encodeFrame(type, stream, payload));
 	}
 
-	private streamDone(stream: HttpStream): void {
+	private streamDone(stream: Stream): void {
 		if (!this.streams.delete(stream.id)) return;
 		meter(this.options, {
 			deviceId: this.deviceId,
-			kind: "http",
+			kind: stream instanceof HttpStream ? "http" : "websocket",
 			bytesIn: stream.bytesIn,
 			bytesOut: stream.bytesOut,
 			duration: this.host.clock.now() - stream.startedAt,
 		});
-		if (this.streams.size === 0) this.stopSweeping();
+		if (![...this.streams.values()].some((candidate) => candidate instanceof HttpStream)) this.stopSweeping();
 	}
 
-	/** Checks for idle streams every quarter of `streamIdle` while any stream is open. */
+	/** Checks for idle HTTP streams every quarter of `streamIdle` while any is open; WebSocket streams have no idle limit. */
 	private startSweep(): void {
 		if (this.stopSweep !== undefined) return;
 		this.stopSweep = this.host.clock.after(this.limits.streamIdle / 4, () => {
 			this.stopSweep = undefined;
 			const now = this.host.clock.now();
-			for (const stream of this.streams.values()) if (stream.idleAt(now, this.limits.streamIdle)) stream.reset("idle", "The stream was idle");
-			if (this.streams.size > 0) this.startSweep();
+			for (const stream of this.streams.values()) {
+				if (stream instanceof HttpStream && stream.idleAt(now, this.limits.streamIdle)) stream.reset("idle", "The stream was idle");
+			}
+			if ([...this.streams.values()].some((stream) => stream instanceof HttpStream)) this.startSweep();
 		});
 	}
 

@@ -31,7 +31,7 @@ export {
 	RESET_CODES,
 	type ResetCode,
 } from "./connection.ts";
-export { IncomingBody, type IncomingBodyEvents, ReceiveCredit, SendCredit, sendBody } from "./credit.ts";
+export { IncomingBody, type IncomingBodyEvents, MessageCredit, ReceiveCredit, SendCredit, sendBody } from "./credit.ts";
 export { ProtocolError } from "./errors.ts";
 export {
 	CREDENTIAL_BYTES,
@@ -50,7 +50,7 @@ export { decodeFrame, encodeFrame, type Frame, FRAME_HEADER_SIZE, FRAME_TYPE, ty
 export { decodeHeaderList, forwardableHeaders, type HeaderList, isHeaderName, MAX_HEADERS, toHeaders } from "./headers.ts";
 export { decodeJsonObject, encodeJson, isIntegerBetween, isJsonObject, isStringUpTo, type JsonObject } from "./json.ts";
 export { checkLimits, DEFAULT_LIMITS, LIMIT_RANGES, type Limits, MAX_MESSAGE_SIZE } from "./limits.ts";
-export { type Message, MessageAssembler, splitMessage } from "./messages.ts";
+export { GOING_AWAY, type Message, MessageAssembler, MessageSender, toClosing } from "./messages.ts";
 export {
 	type Closing,
 	decodeClosing,
@@ -74,6 +74,7 @@ export {
 	type Hello,
 	type HttpHead,
 	isSendableCloseCode,
+	MAX_CLOSE_REASON_BYTES,
 	type MessageChunk,
 	type Open,
 	type Reset,

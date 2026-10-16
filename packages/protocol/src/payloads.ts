@@ -47,7 +47,7 @@ const MAX_PROTOCOLS = 16;
 const MAX_NAME_LENGTH = 128;
 const MAX_ADDRESS_LENGTH = 64;
 /** The most UTF-8 bytes a WebSocket close frame leaves for its reason. */
-const MAX_CLOSE_REASON_BYTES = 123;
+export const MAX_CLOSE_REASON_BYTES = 123;
 const BINARY = 0b01;
 const MORE = 0b10;
 

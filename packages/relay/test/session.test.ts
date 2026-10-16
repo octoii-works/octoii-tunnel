@@ -86,7 +86,7 @@ function fakeSession(options: { live?: FakeSocket[]; authorize?: () => Promise<{
 		return socket;
 	};
 	const visit = (path = "/") =>
-		session.fetch(new Request(`https://${deviceId}.relay.test${path}`), { address: "203.0.113.1", acceptConnector: () => undefined });
+		session.fetch(new Request(`https://${deviceId}.relay.test${path}`), { address: "203.0.113.1", acceptWebSocket: () => undefined });
 	return { session, deviceId, credential, advance, connect, visit };
 }
 
@@ -145,7 +145,7 @@ describe("device sessions", () => {
 		await Bun.sleep(0);
 		const open = authenticated.sent.find((message) => typeof message !== "string" && decodeFrame(message, MAX_FRAME_SIZE).type === FRAME_TYPE.OPEN);
 		expect(open === undefined || typeof open === "string" ? undefined : decodeFrame(open, MAX_FRAME_SIZE).stream).toBe(7);
-		expect(authenticated.attachment()?.nextStream).toBe(8);
+		expect(authenticated.attachment()).toMatchObject({ role: "connector", nextStream: 8 });
 	});
 
 	test("refuse an authentication still in flight when the device is removed", async () => {
@@ -158,7 +158,7 @@ describe("device sessions", () => {
 			new Request(`${ORIGIN}/v1/devices/${deviceId}`, { method: "DELETE", headers: { authorization: `Bearer ${credential}` } }),
 			{
 				address: "",
-				acceptConnector: () => undefined,
+				acceptWebSocket: () => undefined,
 			},
 		);
 		expect(removal?.status).toBe(204);

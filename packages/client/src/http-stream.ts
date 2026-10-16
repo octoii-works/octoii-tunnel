@@ -5,7 +5,6 @@ import {
 	encodeCredit,
 	encodeHttpHead,
 	encodeReset,
-	encodeWebSocketHead,
 	FRAME_TYPE,
 	type Frame,
 	type FrameType,
@@ -64,13 +63,8 @@ export class ServedHttpStream {
 		if (BODILESS_METHODS.has(open.method)) this.body.end();
 	}
 
-	/** Serves the request: a WebSocket is refused for now, the secure path is kept from the handler. */
+	/** Serves the request through the handler; the secure path never reaches it. */
 	start(): void {
-		if (this.open.kind === "websocket") {
-			this.sendIfOpen(FRAME_TYPE.HEAD, encodeWebSocketHead({ accept: false, status: 501 }));
-			this.finish();
-			return;
-		}
 		void this.serve();
 	}
 
