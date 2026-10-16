@@ -25,7 +25,10 @@ import { ServedWebSocketStream, type TunnelSocket, type WebSocketHandler } from 
 import type { SecureChannel } from "./secure/channel.ts";
 import { respond } from "./secure/handshake.ts";
 import { type PairingOffer, PairingOffers } from "./secure/offers.ts";
-import { forgetVisitor, type PairingStore, staticKeyOf } from "./secure/store.ts";
+import { forgetVisitor, type PairedVisitor, pairedVisitors, type PairingStore, staticKeyOf } from "./secure/store.ts";
+
+/** The close code of a forgotten visitor's channels: as for a refused handshake, the visitor is not paired. */
+const FORGOTTEN = 4401;
 
 /** How a connector is set up. */
 export type ConnectorOptions = {
@@ -59,6 +62,8 @@ export class Connector {
 	private readonly streams = new Map<number, ServedHttpStream | ServedWebSocketStream>();
 	private readonly offers = new PairingOffers();
 	private readonly channelListeners = new Set<(channel: SecureChannel) => void>();
+	/** The secure channels open now, so forgetting a visitor closes its own. */
+	private readonly channels = new Set<SecureChannel>();
 	private connection: ConnectorConnection | undefined;
 	private connectedAt = 0;
 	private attempt = 0;
@@ -96,9 +101,15 @@ export class Connector {
 		return () => this.channelListeners.delete(listener);
 	}
 
-	/** Forgets a paired visitor: its next channel is refused. */
+	/** The visitors this device has paired with, the earliest first. */
+	async visitors(): Promise<PairedVisitor[]> {
+		return pairedVisitors(this.requireStore());
+	}
+
+	/** Forgets a paired visitor: its open channels close, and its next one is refused. */
 	async forgetVisitor(publicKey: string): Promise<void> {
 		await forgetVisitor(this.requireStore(), publicKey);
+		for (const channel of this.channels) if (channel.visitor.publicKey === publicKey) channel.close(FORGOTTEN, "The visitor was forgotten");
 	}
 
 	/** Stops the connector and closes its connection. */
@@ -180,6 +191,8 @@ export class Connector {
 				address: this.address,
 				handler: this.options.handler,
 				accepted: (channel) => {
+					this.channels.add(channel);
+					void channel.done.then(() => this.channels.delete(channel));
 					for (const listener of this.channelListeners) listener(channel);
 				},
 			});

@@ -11,6 +11,8 @@ export interface PairingStore {
 	get(name: string): Promise<string | undefined>;
 	set(name: string, value: string): Promise<void>;
 	delete(name: string): Promise<void>;
+	/** The names of the values kept under names that start with `prefix`. */
+	names(prefix: string): Promise<string[]>;
 }
 
 /** A pairing store in memory, for tests and short-lived visitors. */
@@ -28,6 +30,10 @@ export class MemoryPairingStore implements PairingStore {
 	async delete(name: string): Promise<void> {
 		this.values.delete(name);
 	}
+
+	async names(prefix: string): Promise<string[]> {
+		return [...this.values.keys()].filter((name) => name.startsWith(prefix));
+	}
 }
 
 /** A visitor the connector has paired with. */
@@ -37,7 +43,8 @@ export type PairedVisitor = { readonly publicKey: string; readonly name: string;
 export type Pairing = { readonly address: string; readonly connectorKey: string };
 
 const KEY = "takotunnel:key";
-const visitorEntry = (publicKey: string): string => `takotunnel:visitor:${publicKey}`;
+const VISITOR_PREFIX = "takotunnel:visitor:";
+const visitorEntry = (publicKey: string): string => VISITOR_PREFIX + publicKey;
 const pairingEntry = (address: string): string => `takotunnel:pairing:${address}`;
 
 /** This side's static key pair, made and kept the first time it is needed. */
@@ -64,6 +71,13 @@ export async function pairedVisitor(store: PairingStore, publicKey: string): Pro
 	}
 	if (!isJsonObject(value) || typeof value["name"] !== "string" || typeof value["pairedAt"] !== "number") return undefined;
 	return { publicKey, name: value["name"], pairedAt: value["pairedAt"] };
+}
+
+/** The visitors the connector has paired with, the earliest first. */
+export async function pairedVisitors(store: PairingStore): Promise<PairedVisitor[]> {
+	const names = await store.names(VISITOR_PREFIX);
+	const visitors = await Promise.all(names.map((name) => pairedVisitor(store, name.slice(VISITOR_PREFIX.length))));
+	return visitors.filter((visitor) => visitor !== undefined).sort((a, b) => a.pairedAt - b.pairedAt);
 }
 
 /** Keeps a visitor the connector has just paired with. */

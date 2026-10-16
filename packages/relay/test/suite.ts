@@ -321,6 +321,22 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				expect(await (await channel.fetch("/again")).text()).toBe("GET /again ");
 			});
 
+			test("list the visitors paired, and close a forgotten one's channels and refuse its next", async () => {
+				const relay = await start();
+				const { connector } = await secureDevice(relay);
+				const phoneStore = new MemoryPairingStore();
+				const phone = await pairWith((await connector.offerPairing()).url, { store: phoneStore, name: "phone" });
+				await pairWith((await connector.offerPairing()).url, { store: new MemoryPairingStore(), name: "laptop" });
+				const visitors = await connector.visitors();
+				expect(visitors.map((visitor) => visitor.name)).toEqual(["phone", "laptop"]);
+				const channel = await openSecureChannel(phone, { store: phoneStore });
+				const closed = new Promise<number>((resolve) => (channel.onclose = resolve));
+				await connector.forgetVisitor(visitors[0]?.publicKey ?? "");
+				expect(await closed).toBe(4401);
+				expect((await connector.visitors()).map((visitor) => visitor.name)).toEqual(["laptop"]);
+				await expect(openSecureChannel(phone, { store: phoneStore })).rejects.toThrow();
+			});
+
 			test("refuse a visitor that never paired, and a pairing code used twice", async () => {
 				const relay = await start();
 				const { connector } = await secureDevice(relay);

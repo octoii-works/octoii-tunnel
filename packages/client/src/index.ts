@@ -10,5 +10,5 @@ export type { Handler } from "./http-stream.ts";
 export type { TunnelSocket, WebSocketHandler } from "./websocket-stream.ts";
 export type { SecureChannel, VisitorChannel, VisitorIdentity } from "./secure/channel.ts";
 export type { PairingOffer } from "./secure/offers.ts";
-export { MemoryPairingStore, type Pairing, type PairingStore } from "./secure/store.ts";
+export { MemoryPairingStore, type PairedVisitor, type Pairing, type PairingStore } from "./secure/store.ts";
 export { openSecureChannel, pairWith } from "./secure/visitor.ts";

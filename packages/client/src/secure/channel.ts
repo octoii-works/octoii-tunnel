@@ -70,12 +70,18 @@ abstract class Channel {
 	onmessage: ((message: string | Uint8Array) => void) | undefined;
 	/** Called once when the channel closes, from either side or because it broke. */
 	onclose: ((code: number, reason: string) => void) | undefined;
+	/** Settles once the channel closed, with how. */
+	readonly done: Promise<{ readonly code: number; readonly reason: string }>;
+	private settleDone: ((closed: { readonly code: number; readonly reason: string }) => void) | undefined;
 	protected readonly link: EncryptedLink;
 	private readonly assembler = new MessageAssembler();
 	private closed = false;
 
 	constructor(link: ChannelLink, ciphers: TransportCiphers) {
 		this.link = new EncryptedLink(link, ciphers);
+		this.done = new Promise((resolve) => {
+			this.settleDone = resolve;
+		});
 	}
 
 	/** Sends a message to the other side, in as many frames as it takes. */
@@ -148,6 +154,7 @@ abstract class Channel {
 		if (this.closed) return;
 		this.closed = true;
 		this.endFetches();
+		this.settleDone?.({ code, reason });
 		this.onclose?.(code, reason);
 	}
 }
