@@ -1,0 +1,20 @@
+{
+  "name": "@klein-works/takotunnel-protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "The takotunnel wire format: frames, payloads, limits, flow control and formats",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "dependencies": {
+    "@noble/hashes": "2.4.0"
+  }
+}

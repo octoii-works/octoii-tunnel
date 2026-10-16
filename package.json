@@ -10,7 +10,7 @@
     "format": "prettier --write \"**/*.{ts,js,mjs}\"",
     "format:check": "prettier --check \"**/*.{ts,js,mjs}\"",
     "lint": "oxlint --deny-warnings packages scripts",
-    "typecheck": "tsc -p packages/client && tsc -p packages/relay && tsc -p tsconfig.bun.json",
+    "typecheck": "tsc -p packages/protocol && tsc -p packages/client && tsc -p packages/relay && tsc -p tsconfig.bun.json",
     "relay": "bun scripts/relay.ts",
     "test": "bun test --no-env-file --no-install",
     "build": "bun scripts/build.ts",

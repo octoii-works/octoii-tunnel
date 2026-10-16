@@ -3,7 +3,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 export const ROOT = resolve(import.meta.dir, "..");
-export const packages = ["client", "relay"] as const;
+/** The packages, each after the ones it depends on. */
+export const packages = ["protocol", "client", "relay"] as const;
 
 export async function run(command: string[], cwd = ROOT): Promise<string> {
 	const child = Bun.spawn(command, { cwd, stdout: "pipe", stderr: "pipe" });

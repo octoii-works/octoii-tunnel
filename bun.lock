@@ -19,6 +19,13 @@
         "@noble/hashes": "2.4.0",
       },
     },
+    "packages/protocol": {
+      "name": "@klein-works/takotunnel-protocol",
+      "version": "0.0.0",
+      "dependencies": {
+        "@noble/hashes": "2.4.0",
+      },
+    },
     "packages/relay": {
       "name": "@klein-works/takotunnel-relay",
       "version": "0.0.0",
@@ -29,6 +36,8 @@
   },
   "packages": {
     "@klein-works/takotunnel": ["@klein-works/takotunnel@workspace:packages/client"],
+
+    "@klein-works/takotunnel-protocol": ["@klein-works/takotunnel-protocol@workspace:packages/protocol"],
 
     "@klein-works/takotunnel-relay": ["@klein-works/takotunnel-relay@workspace:packages/relay"],
 

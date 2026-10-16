@@ -22,6 +22,7 @@ try {
 					types: name === "relay" ? ["bun"] : [],
 					lib: ["ES2022", "DOM", "DOM.Iterable"],
 					paths: {
+						"@klein-works/takotunnel-protocol": [join(ROOT, "packages/protocol/dist/index.d.ts")],
 						"@klein-works/takotunnel": [join(ROOT, "packages/client/dist/index.d.ts")],
 						"@klein-works/takotunnel/protocol": [join(ROOT, "packages/client/dist/protocol/index.d.ts")],
 					},
