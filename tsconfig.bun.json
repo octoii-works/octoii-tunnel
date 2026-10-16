@@ -1,5 +1,19 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": { "types": ["bun"], "lib": ["ES2022"] },
-  "include": ["packages/*/test/**/*.ts", "packages/*/src/bun/**/*.ts", "scripts/**/*.ts"]
+  "compilerOptions": {
+    "types": [
+      "bun"
+    ],
+    "lib": [
+      "ES2022"
+    ]
+  },
+  "include": [
+    "packages/*/test/**/*.ts",
+    "packages/*/src/bun/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "packages/relay/test/worker-entry.ts"
+  ]
 }

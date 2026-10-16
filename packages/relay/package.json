@@ -6,7 +6,8 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./bun": "./src/bun/index.ts"
+    "./bun": "./src/bun/index.ts",
+    "./worker": "./src/worker/index.ts"
   },
   "files": [
     "dist",
@@ -19,6 +20,8 @@
   },
   "description": "The takotunnel relay: its core, and hosts for the Workers and Durable Object APIs and for one Bun process",
   "devDependencies": {
-    "@klein-works/takotunnel": "workspace:*"
+    "@cloudflare/workers-types": "5.20261001.1",
+    "@klein-works/takotunnel": "workspace:*",
+    "miniflare": "4.20260730.0"
   }
 }

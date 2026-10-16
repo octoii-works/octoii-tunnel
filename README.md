@@ -78,8 +78,8 @@ Either way you need a wildcard domain (`*.<your domain>`) and the bare domain po
 
 Under construction. Built: the protocol package; registration; the connector with heartbeats and reconnects; plain
 HTTP streams and visitor WebSockets under flow control; sessions that resume from their sockets; and the Bun host with
-SQLite. Being built, in order: the Durable Object host with hibernation, then pairing and secure channels, then the
-`takotunnel` command.
+SQLite and the Durable Object host with hibernation, both passing one behavioral suite. Being built, in order:
+pairing and secure channels, then the `takotunnel` command.
 
 ## License
 

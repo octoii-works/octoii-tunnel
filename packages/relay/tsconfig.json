@@ -12,6 +12,7 @@
     "src/**/*.ts"
   ],
   "exclude": [
-    "src/bun"
+    "src/bun",
+    "src/worker"
   ]
 }

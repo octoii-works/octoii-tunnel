@@ -112,7 +112,9 @@ reconnects.
 - **`/worker`.** For hosts with the Workers and Durable Object APIs. The Worker runs the router and sends each device's
   requests to the Durable Object named by its device id, which holds the device session. The record lives in that
   object's storage. Sockets are hibernating WebSockets with attachments; heartbeats are answered by automatic
-  response, without waking the object.
+  response, without waking the object. A deployment exports the Worker and the object class that `defineRelay(hooks)`
+  makes. A visitor that goes away is noticed when the relay next writes to it, or at once where the host signals it
+  on the request.
 - **`/bun`.** One Bun process: sessions in memory, records in SQLite (`bun:sqlite`), sockets from `Bun.serve`. For
   development, tests, and a single-machine relay.
 
