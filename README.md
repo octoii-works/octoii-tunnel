@@ -72,6 +72,13 @@ Point the client at your relay with `--relay` or the `relay` option.
 - [Protocol](docs/protocol.md): the relay's HTTP API and the frames on a machine's connection.
 - [Security](docs/security.md): pairing, the secure channel, and what each party can and cannot see.
 
+## License
+
+- The relay and the rest of this repository: [FSL-1.1-MIT](LICENSE). You may use, change and run it, including for
+  your own and your company's use; you may not offer it to others as a competing commercial service. Each version
+  becomes MIT two years after its release.
+- The client, `@klein-works/takotunnel`: [MIT](packages/client/LICENSE), so anything may embed it.
+
 ## Status
 
-Under construction. The license is being decided.
+Under construction.

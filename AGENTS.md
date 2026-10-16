@@ -45,4 +45,4 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 - Each package keeps a `CHANGELOG.md` with an `[Unreleased]` section, entries under `### Added`, `### Changed`, `### Fixed`, `### Removed` or `### Breaking Changes`.
 - No secrets in the repo; tests generate their credentials and keys.
 - Read other repositories, such as Tako's, for reference only: never change, commit, install or format anything outside this repository.
-- No `LICENSE` file and no `license` field yet: the license is being decided. Packages are `"private": true` until then.
+- Licenses: the repository, and so the relay, is under FSL-1.1-MIT (`LICENSE`); the client package is under MIT (`packages/client/LICENSE`), so the MIT-licensed services that embed it, such as Tako, stay MIT. Each package's `license` field says which, and packing copies its license file in. Packages stay `"private": true` until Klein decides to publish them.
