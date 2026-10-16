@@ -1,8 +1,5 @@
 # takotunnel security
 
-Pairing and secure channels in this specification are implementation targets. The current client implements only
-plain HTTP tunneling; its relay can read the traffic. No secure-channel API is available yet.
-
 What a relay operator, a network attacker and a stranger can and cannot do, and how pairing and the secure channel
 work.
 
@@ -12,36 +9,36 @@ work.
 | --- | --- | --- |
 | The relay operator | Every request and message it forwards, as a reverse proxy does. It keeps none of it | Who connects to which device, when, and how many bytes. Not the content |
 | The network between a party and the relay | Nothing beyond TLS metadata | The same |
-| A stranger who knows the device's address | Whatever the service serves without authentication | Nothing: the agent refuses a key it has not paired with |
-| A visitor the agent has paired with | | What the service gives that visitor |
+| A stranger who knows the device's address | Whatever the service serves without authentication | Nothing: the connector refuses a key it has not paired with |
+| A visitor the connector has paired with | | What the service gives that visitor |
 
 The relay never stores traffic. What it may record is what `meter` receives: device, stream kind, bytes each way and
 duration.
 
 ## Keys
 
-- The agent has a static x25519 key pair, made when it first needs one and kept in its pairing store. Its public key
+- The connector has a static x25519 key pair, made when it first needs one and kept in its pairing store. Its public key
   is the device's identity in secure mode.
 - Each visitor has its own static x25519 key pair, kept in its pairing store (on a phone, the app's storage or the
   browser's IndexedDB, with the private key non-extractable where the platform allows).
-- The agent's pairing store holds the visitors it has paired with: each one's public key, a name, and when it paired
+- The connector's pairing store holds the visitors it has paired with: each one's public key, a name, and when it paired
   and was last seen. Removing a visitor revokes it at once: its next handshake fails, and its open channels close.
 
 ## Pairing
 
-1. **Offer.** The agent makes a pairing code (16 random bytes), valid for 5 minutes and for one use, and shows the
+1. **Offer.** The connector makes a pairing code (16 random bytes), valid for 5 minutes and for one use, and shows the
    offer as a URL, usually as a QR code:
 
    ```text
-   https://<device id>.<base domain>/#takotunnel-pair=<code, base64url>&key=<agent public key, base64url>
+   https://<device id>.<base domain>/#takotunnel-pair=<code, base64url>&key=<connector public key, base64url>
    ```
 
    The fragment never leaves the visitor's device: a browser sends no fragment, and the visitor library reads the
    offer itself. The relay never learns the code or the key from it.
 2. **Handshake.** The visitor opens a WebSocket stream to `/.takotunnel/secure` and runs the handshake below, sending
    the code in its last handshake message.
-3. **Check.** The agent accepts the visitor's key only if the code is one it offered, unused and unexpired; it then
-   spends the code and records the key. The visitor accepts the agent only if the agent's static key in the handshake
+3. **Check.** The connector accepts the visitor's key only if the code is one it offered, unused and unexpired; it then
+   spends the code and records the key. The visitor accepts the connector only if the connector's static key in the handshake
    equals the key from the offer.
 4. **Done.** Both sides keep the other's key. The service may ask the user on the device to confirm the new visitor,
    and may name it.
@@ -51,7 +48,7 @@ A code is checked in constant time. Five failed codes within a minute stop new p
 ## Secure channel
 
 A WebSocket stream to `/.takotunnel/secure`, carrying binary messages. The relay forwards it like any other stream.
-The agent's client library handles the path itself and never passes it to the service's handler.
+The connector library handles the path itself and never passes it to the service's handler.
 
 ### Handshake
 
@@ -60,13 +57,13 @@ handshake message is one WebSocket message.
 
 | Message | Direction | Noise tokens | Payload |
 | --- | --- | --- | --- |
-| 1 | visitor → agent | `e` | empty |
-| 2 | agent → visitor | `e, ee, s, es` | empty |
-| 3 | visitor → agent | `s, se` | JSON `{ "pair"?: <code>, "name"?: string }` |
+| 1 | visitor → connector | `e` | empty |
+| 2 | connector → visitor | `e, ee, s, es` | empty |
+| 3 | visitor → connector | `s, se` | JSON `{ "pair"?: <code>, "name"?: string }` |
 
 - With `pair`: the pairing check above.
-- Without: the agent accepts only a visitor key it has paired with.
-- The visitor checks the agent's static key against the key it paired with (or, when pairing, the key in the offer)
+- Without: the connector accepts only a visitor key it has paired with.
+- The visitor checks the connector's static key against the key it paired with (or, when pairing, the key in the offer)
   before it sends message 3, and aborts on a mismatch.
 - A refused handshake ends with a WebSocket close, code 4401, and no reason that tells a stranger more.
 
@@ -88,7 +85,7 @@ handshake message is one WebSocket message.
   | --- | --- | --- |
   | `0x01` | `message` | 1 byte, `0` text or `1` binary, then the bytes; `2` and `3` continue a text or binary message across frames, the last frame using `0` or `1` |
   | `0x02` | `request` | JSON `{ "method", "path", "headers": [[name, value]] }`, from the visitor |
-  | `0x03` | `response` | JSON `{ "status", "headers": [[name, value]] }`, from the agent |
+  | `0x03` | `response` | JSON `{ "status", "headers": [[name, value]] }`, from the connector |
   | `0x04` | `body` | body bytes of the request or response with that id |
   | `0x05` | `end` | empty: the body with that id is complete |
   | `0x06` | `cancel` | empty: the request with that id is abandoned |

@@ -1,88 +1,85 @@
 # takotunnel
 
-Reach a service on a machine behind NAT through a relay that the machine connects out to. The client and relay
-cores use web-standard APIs; hosts supply networking, device storage and scheduling.
+Reach a service on your own machine from anywhere, without opening a port, and without the relay in between being
+able to read what you send.
 
-The working implementation supports registration, agent authentication and reconnection, and streamed HTTP
-requests and responses. Visitor WebSocket forwarding, pairing, encrypted channels and the local-port CLI remain
-implementation targets described in the specs. **Current HTTP traffic is plain mode: the relay can read it.**
+Your machine runs a connector that connects out to a relay and keeps that connection open. Visitors reach the machine
+at its own address on the relay, `https://<device>.<relay domain>`, and the relay forwards their requests over the
+connection. Paired visitors can talk to the machine end to end encrypted: the relay then forwards only ciphertext.
+
+Tako uses takotunnel so you can talk to the agent on your PC from your phone. Anything else that serves HTTP or
+WebSockets can use it too.
+
+## Two modes
+
+| Mode | What the relay sees | Who can use it |
+| --- | --- | --- |
+| **Plain** | The HTTP requests and WebSocket messages it forwards, as any reverse proxy does | Any HTTP or WebSocket client, such as a browser opening the device's address |
+| **Secure** | Only ciphertext: a Noise channel runs between the visitor and the connector | A visitor paired with the device, using the visitor library |
+
+In both modes the relay keeps nothing of the traffic: no bodies, no header values, no query strings.
 
 ## Packages
 
-| Package | Entries |
+| Package | What it is |
 | --- | --- |
-| `@klein-works/takotunnel` | Root: `registerDevice`, `removeDevice`, `connectAgent`. `/protocol`: frame codecs, validation and flow control |
-| `@klein-works/takotunnel-relay` | Root: routing, device sessions, host interfaces and an in-memory device store. `/bun`: network adapter and standalone server |
+| [`@klein-works/takotunnel-protocol`](packages/protocol) | The wire format: frames, payloads, limits, flow control, device id and credential formats |
+| [`@klein-works/takotunnel`](packages/client) | The client. On the device: register it, run its connector, offer pairings, accept secure channels. On the visitor: pair, and open a secure channel. A `takotunnel` command exposes a local port |
+| [`@klein-works/takotunnel-relay`](packages/relay) | The relay: its core, and adapters for hosts with the Workers and Durable Object APIs (`/worker`) and for a single Bun process with SQLite (`/bun`) |
 
-Both packages are MIT. Root entries contain no server-runtime imports. There is no bundled database or cloud
-provider SDK. The relay depends only on the client's shared protocol; the client never depends on the relay.
-Packages remain private until publication is explicitly enabled.
+## Use it
 
-## Client
-
-```ts
-import { connectAgent, registerDevice } from "@klein-works/takotunnel";
-
-const relay = "https://relay.example.com";
-const device = await registerDevice({ relay, token });
-const agent = connectAgent({
-  relay,
-  device,
-  handler: (request) => app.fetch(request),
-});
-await agent.ready;
-// Visitors can now reach device.address.
-// Save device securely to reconnect without registering again.
-```
-
-The handler receives a standard `Request` and returns a `Response`. Bodies stream under per-stream flow control.
-An agent reconnects after a connection failure. Replaced agents and agents with invalid credentials stop.
-
-## Relay
-
-The included network adapter runs in one Bun process. The host explicitly supplies its device store:
-
-```ts
-import { createMemoryDeviceStore } from "@klein-works/takotunnel-relay";
-import { serveRelay } from "@klein-works/takotunnel-relay/bun";
-
-const relay = serveRelay({
-  origin: "http://localhost:8787",
-  registrationToken: token,
-  store: createMemoryDeviceStore(),
-  port: 8787,
-});
-// await relay.close();
-```
-
-The memory store is for development and tests: registrations disappear when the process ends. An application
-implements `DeviceStore` to keep device records in its own storage. It owns that storage's lifecycle. No traffic
-bodies, header values or query strings belong in device records.
-
-For public deployment, supply a wildcard domain and TLS, persistent device storage, and a registration token.
-Every request for one device must reach the process holding its agent connection. Sharing a store alone does not
-make a multi-process relay. Other runtimes can implement the same host interfaces; their network adapters are not
-included yet.
-
-## Development
+Expose a local port:
 
 ```sh
-bun install
-bun run check
-bun run build
-bun run pack
-bun run verify:packages
+takotunnel register --relay https://takotunnel.dev   # once: prints the device's address
+takotunnel http 3000                                  # forwards visitors to localhost:3000
 ```
 
-`bun run relay` starts the development relay using in-memory storage. It reads `REGISTRATION_TOKEN` (required),
-`RELAY_ORIGIN`, `HOST` and `PORT` from the environment. See [Development](docs/development.md) for packaging and checks.
+From code, on the device:
 
-## Specs
+```ts
+import { connectDevice, registerDevice } from "@klein-works/takotunnel";
 
-- [Design](docs/design.md): architecture, host boundaries and implementation targets.
-- [Protocol](docs/protocol.md): HTTP routes, agent frames and flow control.
-- [Security](docs/security.md): the pairing and encrypted-channel design to implement.
+const device = await registerDevice({ relay: "https://takotunnel.dev", token });
+const connector = connectDevice({ relay: "https://takotunnel.dev", device, handler: (request) => app.fetch(request) });
+const offer = await connector.offerPairing(); // show offer.url as a QR code to the visitor
+connector.onSecureChannel((channel) => serve(channel));
+```
+
+On the visitor:
+
+```ts
+import { openSecureChannel, pairWith } from "@klein-works/takotunnel";
+
+const pairing = await pairWith(offerUrl, { store }); // once, from the QR code
+const channel = await openSecureChannel(pairing, { store });
+channel.send(message);
+```
+
+## Run your own relay
+
+- **On a host with the Workers and Durable Object APIs:** deploy `@klein-works/takotunnel-relay/worker` with a
+  Durable Object binding for device sessions. Idle devices hibernate and cost nothing.
+- **On one machine:** run `@klein-works/takotunnel-relay/bun`, which keeps device records in a SQLite file.
+
+Either way you need a wildcard domain (`*.<your domain>`) and the bare domain pointing at the relay, TLS for both, and
+`REGISTRATION_TOKEN`, the secret a device presents to register. Point the client at your relay with `--relay` or the
+`relay` option.
+
+## Docs
+
+- [Design](docs/design.md): the packages, the relay and its hosts, the connector.
+- [Protocol](docs/protocol.md): the relay's HTTP API and the connector connection.
+- [Security](docs/security.md): pairing, the secure channel, and what each party can and cannot see.
+- [Development](docs/development.md): checks, building and packing.
+
+## Status
+
+Under construction. Built: registration, the connector connection with reconnects, and plain HTTP streams, on a
+single Bun process with an in-memory store. Being built, in order: the protocol package and the restructured relay and
+client, visitor WebSockets, the SQLite and Durable Object hosts with hibernation, then pairing and secure channels.
 
 ## License
 
-The repository and both packages are [MIT](LICENSE).
+[MIT](LICENSE).

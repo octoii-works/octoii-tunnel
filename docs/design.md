@@ -1,10 +1,7 @@
 # takotunnel design
 
-The implemented scope is plain HTTP tunneling. WebSocket forwarding and secure mode below are implementation
-targets; see the implementation section for available APIs.
-
-takotunnel lets a phone, a browser or any HTTP client reach a service on a machine behind NAT, without opening a port.
-The machine connects out to a relay and keeps the connection open; visitors
+takotunnel lets a phone, a browser or any HTTP client reach a service on a machine behind NAT, such as the Tako server
+on a user's PC, without opening a port. The machine connects out to a relay and keeps the connection open; visitors
 reach the machine at its own address on the relay, and the relay forwards their requests over that connection.
 Visitors the machine has paired with can open a secure channel to it: end to end encrypted, so the relay forwards only
 ciphertext.
@@ -16,168 +13,176 @@ the rest around it through two hooks; none of it is here, and the core does not 
 
 | Term | Meaning |
 | --- | --- |
-| Relay | The server every party connects to: a portable forwarding core hosted by a runtime adapter |
+| Relay | The server every party connects to: a router, and one device session per device |
 | Device | A machine registered with the relay, with an id and a secret credential |
-| Device session | The relay core's state for one device: its current agent connection, open streams and flow-control credit |
-| Runtime adapter | The host implementation of network serving, device storage, scheduling and routing to device sessions |
-| Agent | The process on the device that connects out to the relay and serves what visitors ask for |
-| Agent connection | The one WebSocket from the agent to the relay that carries every stream |
+| Connector | The process on the device that connects out to the relay and serves what visitors ask for |
+| Connector connection | The one WebSocket from the connector to the relay that carries every stream |
+| Device session | The relay's state for one device: its record, its connector connection, its open streams |
 | Visitor | Whoever reaches the device through the relay: a browser, a phone app, a script |
 | Device address | Where visitors reach a device: `https://<device id>.<base domain>` |
-| Stream | One visitor exchange carried on the agent connection: an HTTP request and its response, or a WebSocket |
+| Stream | One visitor exchange carried on the connector connection: an HTTP request and its response, or a WebSocket |
 | Base domain | The relay's domain, chosen by whoever deploys it |
+| Host | What runs the relay: a runtime and its storage, behind an adapter |
 | Plain mode | A visitor uses a stream directly; the relay sees what it forwards, as a reverse proxy does |
-| Secure mode | A paired visitor and the agent run a Noise channel inside a WebSocket stream; the relay sees only ciphertext |
-| Pairing | The one-time exchange, started from a QR code the agent shows, after which the agent knows the visitor's key and the visitor knows the agent's |
+| Secure mode | A paired visitor and the connector run a Noise channel inside a WebSocket stream; the relay sees only ciphertext |
+| Pairing | The one-time exchange, started from a QR code the connector shows, after which each side knows the other's key |
 | Pairing store | Where each side keeps its keys and the keys it has paired with; the service using takotunnel provides it |
 
 ## Requirements
 
-- **Portable cores.** The client and relay cores use TypeScript and web-standard values and APIs. Server APIs,
-  databases, timers that survive suspension, and device routing belong to runtime adapters. A relay host must
-  support long-lived connections and streaming; a client host needs only the client-side capabilities. Self-hosting
-  docs describe these requirements without prescribing a hosting provider.
 - **A dumb relay.** The relay routes and forwards. It knows nothing of secure mode, keeps no body, header value or
   query string, and logs none. Counters (bytes, streams, durations) go to the metering hook.
-- **No buffering without bound.** Bodies and messages stream through under per-stream flow control, so a slow reader
-  cannot fill the relay's or the agent's memory.
-- **Survives restarts and moves.** The agent reconnects on its own, with backoff and jitter, after a network change, a
-  sleep, a relay deploy, or the relay closing its connection to restart or move the device session (code 1012). A
-  visitor whose stream was cut gets a clear error, never a hang. A secure channel that drops is opened again by the
-  visitor; the library does it on its own.
+- **Idle costs nothing.** A device whose connector is connected but which no visitor uses must cost no compute: the
+  relay sends nothing on its own, and a host that can suspend a session while keeping its sockets does so.
+- **No buffering without bound.** Bodies and messages stream through under per-stream flow control, and every send
+  respects the socket's own buffer, so a slow reader cannot fill the relay's or the connector's memory.
+- **Survives restarts and moves.** The connector reconnects on its own, with backoff and jitter, after a network
+  change, a sleep, a relay deploy, or the relay closing its connection to restart or move the session (code 1012). A
+  visitor whose stream was cut gets a clear error, never a hang. A dropped secure channel is reopened by the visitor
+  library.
+- **Portable.** The protocol and the client run on any JavaScript runtime with web standards, Hermes included. The
+  relay core runs on any host that gives it the capabilities below; the repository ships adapters for two.
 - **Small and checkable.** The core stays small enough to read in an afternoon: that is how users verify that the
   relay only forwards and that secure mode is what it says.
 
-## Architecture
+## Packages
 
 ```text
-visitor ──HTTPS / WSS──► host adapter ──► device session ◄──WSS── agent ──► handler
-                         (routes)         (relay core)            │
-                                                                 └──► secure channels (Noise)
+@klein-works/takotunnel-protocol   the wire format: frames, payloads, limits, flow control, formats
+        ▲                    ▲
+@klein-works/takotunnel   @klein-works/takotunnel-relay
+ (the client)              (the core; /worker and /bun adapters)
 ```
 
-- **Relay routing.** The core classifies the host and path; the adapter delivers the request to the owning session:
-  - `<device id>.<base domain>`, any path: a visitor stream.
-  - `<base domain>/v1/devices`: registration and removal of devices.
-  - `<base domain>/v1/agent/<device id>`: the agent connection, a WebSocket upgrade.
+| Package | What it is |
+| --- | --- |
+| `@klein-works/takotunnel-protocol` | Frame encoding and decoding, payload codecs that validate, limits, close and reset codes, flow control (`SendCredit`, `IncomingBody`), the device id and credential formats, and UTF-8 and base64url written out so they run where `TextDecoder` and `btoa` do not. No I/O |
+| `@klein-works/takotunnel` | The client. On the device: `registerDevice()`, `removeDevice()`, and `connectDevice()`, which returns a `Connector` that keeps the connector connection and serves streams through a handler, offers pairings and accepts secure channels. On the visitor: `pairWith()` and `openSecureChannel()`. `/bun`: a handler that forwards to a local port, a file-backed `PairingStore`, and the `takotunnel` command |
+| `@klein-works/takotunnel-relay` | `createRelay()`, the router and the device session, and two adapters: `/worker` for hosts with the Workers and Durable Object APIs, and `/bun` for a single Bun process with SQLite |
+
+Each package's root entry uses web standards only. Platform code lives in subpaths. All three are MIT.
+
+## Relay
+
+### The core
+
+- **Router.** Classifies a request by host and path, and checks registration:
+  - `<device id>.<base domain>`, any path: a visitor stream for that device.
+  - `<base domain>/v1/devices`: registration; the router makes the id and credential and asks the host to create the
+    device.
+  - `<base domain>/v1/devices/<device id>` and `<base domain>/v1/connect/<device id>`: removal and the connector
+    connection, for that device.
   - Anything else: 404.
-- **Device session.** One authoritative session per device, keyed by its id. It validates agent credentials, manages
-  the agent connection, opens and closes streams, and enforces flow control and resource limits. A newer connection
-  replaces the older one only after authentication and authorization succeed. Cleanup from an older connection must
-  not remove the replacement.
-- **Agent.** Connects out, authenticates, and serves each stream. A WebSocket stream to the reserved path
-  `/.takotunnel/secure` is a secure channel, which the client library handles itself; every other stream goes to the
-  service's handler (`Request` in, `Response` out, or a WebSocket), so a service plugs its own `fetch` handler in or
-  forwards to a local port.
-- **Visitor.** In plain mode, any HTTP client. In secure mode, the client library: it pairs from a QR code, then opens
-  secure channels to the device's address.
+- **Device session.** One per device, the only owner of its state. It authenticates the connector, keeps the connector
+  connection, opens streams, forwards frames under flow control, enforces limits, and ends streams. A newer connector
+  connection replaces the older one only after it authenticates.
 
-## Runtime boundary
+### What the core asks of a host
 
-The relay core does not bind a port, read environment variables, open a database or import host-specific modules.
-The host supplies configuration and a small set of explicit capabilities:
+A host gives each device session three capabilities, and routes every request for a device to that device's session:
 
-| Capability | Adapter responsibility | Core responsibility |
-| --- | --- | --- |
-| Network serving | Accept HTTP and WebSocket connections; translate server callbacks, stream cancellation and send capacity | Validate requests and frames, select routes, multiplex streams and bound queues |
-| Device records | Atomically create, read and delete durable device records | Generate device ids and credentials; store only credential hashes and validate credentials |
-| Scheduling | Deliver scheduled callbacks using the host's timers or alarms | Decide heartbeat, handshake and stream deadlines and the action when they expire |
-| Device ownership | Route registration, removal, agent connections and visitor requests to the authoritative session for a device | Maintain the device's connection and stream state |
-| Lifecycle | Notify the core of connection loss and shutdown; restore supported suspended sessions | Release streams and resources, reject interrupted work and apply the protocol's close behavior |
+| Capability | What it is |
+| --- | --- |
+| `DeviceRecords` | Read, create and delete this device's record: its id, name and credential hash |
+| `SessionSockets` | Accept a WebSocket, keep a small attachment on each one, list the live ones after the session resumes, and tell when each last sent a heartbeat |
+| `Clock` | The time, and timers that only need to fire while the session is awake (the hello deadline and stream idle deadlines) |
 
-These are host interfaces, not a plugin registry or a general database abstraction. A new adapter implements the
-capabilities and passes the same behavioral tests. Business policy uses the hooks below.
+These are plain interfaces, not a plugin system.
 
-The concrete boundaries are `RelayDirectory` for device routing, `DeviceStore` for device records, `Scheduler` for
-deadlines, and `RequestContext` with `RelaySocket` for network integration. `DeviceSession` receives these capabilities
-from the host. Bun is one adapter implementation; replacing it does not change the client, wire protocol or session
-logic. The core never constructs a host adapter or selects a storage implementation.
+### Sleeping and waking
 
-### Device state and suspension
+A host may suspend an idle session and wake it for the next message or request, keeping its sockets open. The session
+is built so nothing is lost:
 
-A persistent host keeps device registration records across relay restarts; the development memory store does not.
-Traffic bodies, messages, header values and query strings are
-never persisted. An active session keeps only bounded working buffers and routing and flow-control state.
+- **Heartbeats wake nothing.** The connector sends a text `ping`; a host that can answer it without waking the session
+  does so, and remembers when. The relay never pings. A visitor request reaching a session whose connector has not
+  sent a heartbeat for three intervals gets 502, and that connection is closed.
+- **What lives on the sockets.** Each WebSocket carries an attachment with what the session needs to continue: on the
+  connector connection, that it authenticated, as which connection, and the next stream id; on a visitor WebSocket, its
+  stream id and the flow-control credit each way. When the session wakes, it rebuilds itself from the live sockets and
+  their attachments.
+- **What does not.** An HTTP stream keeps the session awake until it ends, so it is never suspended. Traffic is never
+  written anywhere.
 
-A host that suspends a session while retaining its sockets must restore enough control state to continue the same
-connection safely, including its authenticated identity, allocated stream ids and deadlines. It must not persist
-traffic to achieve this. If the host cannot preserve a live session, it ends the affected streams and closes the
-agent connection with 1012 when possible; the agent reconnects. A crash may drop the connection without a close
-frame. Neither reconnection nor session recovery replays interrupted visitor requests.
+A host that cannot keep sockets across a suspension closes the connector connection with 1012, and the connector
+reconnects.
 
-### Included host
+### Adapters
 
-The `/bun` adapter hosts one process and owns an in-memory map of device sessions. It supplies network serving and
-process timers; the application supplies `DeviceStore` explicitly. The built-in memory store is volatile and intended
-for development and tests. Persistent storage, migrations and storage cleanup belong to the embedding application.
-The repository contains no database implementation or provider-specific deployment adapter.
+- **`/worker`.** For hosts with the Workers and Durable Object APIs. The Worker runs the router and sends each device's
+  requests to the Durable Object named by its device id, which holds the device session. The record lives in that
+  object's storage. Sockets are hibernating WebSockets with attachments; heartbeats are answered by automatic
+  response, without waking the object.
+- **`/bun`.** One Bun process: sessions in memory, records in SQLite (`bun:sqlite`), sockets from `Bun.serve`. For
+  development, tests, and a single-machine relay.
 
-`createBunRelay` composes with an application's server; `serveRelay` supplies a standalone server. The application
-owns TLS and storage lifetime. Runtime code depends on the core, and the core never depends on an adapter.
-
-Sharing storage between relay processes does not share live connections. A multi-process host must coordinate device
-ownership and route traffic to its owner. That mode and additional runtime adapters are outside the initial
-implementation. Other hosts may implement the same network, storage, scheduling and routing interfaces.
+A host with several processes must send each device's traffic to the process that owns its session; the repository
+does not include one.
 
 ## Registration and hooks
 
 - A device registers with `POST /v1/devices` and gets its id, its credential (shown once; the relay keeps only its
-  hash) and its address. It presents the credential in the first frame of every agent connection. See
+  hash) and its address. Its connector presents the credential in the first frame of every connection. See
   [protocol.md](protocol.md).
 - The relay does not authenticate visitors: the service behind the device decides who may use it. In secure mode the
-  agent authenticates visitors by their paired keys; see [security.md](security.md).
-- `createRelay` composes the core with host capabilities and the `authorize` and `meter` hooks:
-  - `authorize` supplies the registration policy and may refuse agent connections or visitor streams (a hosted
-    service refuses, say, a device over its quota). The default registration policy requires `REGISTRATION_TOKEN`,
-    read by the host and passed as configuration; visitor streams need no additional authorization by default.
-    The core always validates device credentials for agent connections and device removal, regardless of the hook.
-  - `meter` receives counters as streams and connections end. By default it does nothing.
-  A hosted service wraps the core with its own hooks; it never forks the core. Hooks cannot bypass credential or
-  protocol validation or the core's resource limits.
+  connector authenticates visitors by their paired keys; see [security.md](security.md).
+- `createRelay({ origin, registrationToken, authorize, meter, limits })`:
+  - `authorize` may refuse registration, a connector connection or a visitor stream, such as for a device over its
+    quota. It cannot accept what the core refuses: the registration token, credentials, frames and limits are always
+    checked.
+  - `meter` receives counters as streams and connections end.
+  A hosted service wraps the core with its own hooks; it never forks the core.
+
+## Connector
+
+`connectDevice({ relay, device, handler })` returns a `Connector`. Inside:
+
+- **Reconnecting.** A loop that opens connector connections, with exponential backoff and full jitter between
+  attempts, and stops on the close codes that say to stop.
+- **One connection.** Sends `hello`, waits for `welcome`, sends `ping` every interval and gives up on a connection that
+  answers nothing for three, and hands each frame to the stream it belongs to.
+- **HTTP streams.** Turn `open` into a `Request` for the handler, and the `Response` back into `head`, `data` and `end`.
+- **WebSocket streams.** Hand the handler a WebSocket pair to accept or refuse, and carry messages both ways.
+- **Secure channels.** A WebSocket stream to `/.takotunnel/secure` never reaches the handler: the connector runs the
+  handshake and gives the service a `SecureChannel`.
 
 ## Secure mode in brief
 
-The agent has a static key pair. It offers a pairing as a URL whose fragment holds a one-time code and the agent's
-public key; a browser never sends a fragment, so the relay never sees either. The visitor scans it, opens a WebSocket
-stream to `/.takotunnel/secure`, and runs a Noise XX handshake with the agent that proves the code, pins the agent's
-key, and teaches the agent the visitor's key. Later channels run the same handshake, and the agent accepts only keys
-it has paired with. Inside the channel, messages and fetch-style requests flow encrypted. The full design, with what a
-relay operator can and cannot do, is in [security.md](security.md).
+The connector has a static key pair. It offers a pairing as a URL whose fragment holds a one-time code and the
+connector's public key; a browser never sends a fragment, so the relay never sees either. The visitor scans it, opens
+a WebSocket stream to `/.takotunnel/secure`, and runs a Noise XX handshake with the connector that proves the code,
+pins the connector's key, and teaches the connector the visitor's key. Later channels run the same handshake, and the
+connector accepts only keys it has paired with. Inside the channel, messages and fetch-style requests flow encrypted.
+The full design, with what a relay operator can and cannot do, is in [security.md](security.md).
 
 ## Errors visitors see
 
 | Situation | Response |
 | --- | --- |
 | Unknown device | 404 |
-| No agent connected | 502, saying the device is offline |
-| The agent connection dropped mid-stream | the stream is cut: the HTTP body ends with an error, or the WebSocket closes with 1011 |
+| No connector connected, or its heartbeats stopped | 502, saying the device is offline |
+| The connector connection dropped mid-stream | the stream is cut: the HTTP body ends with an error, or the WebSocket closes with 1011 |
 | Too many open streams | 503 with `retry-after` |
 | Refused by `authorize` | 403, or 429 for a quota |
 
-## Packages
+## Testing
 
-| Package | What it is |
-| --- | --- |
-| `@klein-works/takotunnel` | The client. Root entry (web standards only): `registerDevice()`, `removeDevice()`, `connectAgent()` (the agent connection, reconnect, streams through a handler, `offerPairing()`, `onSecureChannel()`), and for visitors `pairWith()` and `openSecureChannel()`; a `PairingStore` interface with an in-memory implementation. `/protocol`: shared frame codecs, validation and flow-control rules. `/bun`: a handler that forwards to a local port, a file-backed `PairingStore`, and the `takotunnel` command (`register`, `http <port>`, `pair`) |
-| `@klein-works/takotunnel-relay` | The relay. Platform-neutral root: `createRelay`, device sessions and host and hook interfaces. `/bun`: the single-process network adapter and server with an injected device store |
-
-The shared protocol module has no dependency on client connection or encryption code. Both the client and relay
-depend on it. The repository, both packages and all adapters are MIT. The client never imports relay code. These are
-two packages; adapters and shared protocol code use subpath entries.
-
-## Implementation and testing
-
-The executable scope is registration and removal, authenticated agent connections, reconnect handling and streamed
-HTTP requests and responses. The client exports `registerDevice`, `removeDevice` and `connectAgent`; it also exports
-shared protocol helpers at `/protocol`. Visitor WebSockets, pairing, secure channels and the client CLI described
-above are implementation targets, not available APIs. Visitor upgrades and the reserved secure path return 501.
-
-Tests cover malformed frames, bounded receive buffers, blocked send cancellation, authenticated connection
-replacement, device removal, HTTP round trips and bodies exceeding a flow-control window. Lifecycle tests exercise
-host hooks, deadlines and interrupted operations without a platform-specific runtime. Network tests use the included
-server adapter. Packed artifacts are also installed outside the workspace to verify runtime imports and types.
+- Unit tests: frame and payload codecs (and refusing malformed input), flow control, UTF-8 and base64url, the
+  reconnect policy, the Noise handshake against the specification's test vectors, pairing codes (single use, expiry),
+  and channel framing.
+- One behavioral suite, run against both adapters (`/bun` directly, `/worker` on a local workerd):
+  - register a device, connect a connector, do an HTTP round trip, and stream a body larger than the flow-control
+    window both ways;
+  - open a visitor WebSocket and echo messages, including ones larger than a frame;
+  - cut the connector connection: the visitor's stream ends, the connector reconnects;
+  - stop the connector's heartbeats: a visitor gets 502;
+  - suspend and wake an idle session (where the host can), then use the device again;
+  - ask for an offline device and get 502; be refused with a wrong credential;
+  - pair a visitor, open a secure channel, exchange messages and a fetch, reopen it after the connector reconnects;
+    refuse an unpaired key, a reused pairing code and an expired one; check that nothing the relay forwarded contains
+    the plaintext.
 
 ## Out of scope for the core
 
 Accounts, sign-in, named or custom subdomains, billing, quotas beyond what `authorize` decides, a dashboard, push
-notifications, analytics, and anything else of a hosted service.
+notifications, direct connections between visitor and device, analytics, and anything else of a hosted service.
