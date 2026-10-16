@@ -21,7 +21,6 @@ import {
 	type Open,
 	ProtocolError,
 	type ResetCode,
-	SECURE_PATH,
 	SendCredit,
 	toClosing,
 	toHeaders,
@@ -51,7 +50,7 @@ export type WebSocketHandler = (request: Request, accept: (protocol?: string) =>
 export type ServedWebSocketLink = {
 	readonly limits: Limits;
 	readonly address: string;
-	readonly websocket: WebSocketHandler | undefined;
+	readonly websocket: WebSocketHandler;
 	send(type: FrameType, stream: number, payload?: Uint8Array): void;
 	done(stream: ServedWebSocketStream): void;
 };
@@ -106,11 +105,9 @@ export class ServedWebSocketStream {
 		);
 	}
 
-	/** Asks the service to accept or refuse the WebSocket; the secure path never reaches it. */
+	/** Asks the handler to accept or refuse the WebSocket. */
 	start(): void {
-		const handler = this.link.websocket;
-		if (handler === undefined || this.open.path.split("?")[0] === SECURE_PATH) return this.refuse(501);
-		void this.decide(handler);
+		void this.decide(this.link.websocket);
 	}
 
 	/** Handles a frame the relay sent on this stream; a frame that breaks the stream's rules resets it. */

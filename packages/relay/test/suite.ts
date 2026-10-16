@@ -1,6 +1,17 @@
 /** One behavioral suite of the relay, run against every host. */
 import { afterEach, describe, expect, test } from "bun:test";
-import { type Connector, connectDevice, type Device, type Handler, registerDevice, removeDevice } from "@klein-works/takotunnel";
+import {
+	type Connector,
+	connectDevice,
+	type Device,
+	type Handler,
+	MemoryPairingStore,
+	openSecureChannel,
+	pairWith,
+	registerDevice,
+	removeDevice,
+	type SecureChannel,
+} from "@klein-works/takotunnel";
 
 /** The registration token every test relay uses. */
 export const TOKEN = "registration-token-for-tests";
@@ -255,6 +266,68 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const closed = nextClose(third);
 				connector.close();
 				expect(await closed).toBe(1011);
+			});
+		});
+
+		describe("secure channels", () => {
+			/** A device whose connector answers plain and secure requests alike, and echoes messages on secure channels. */
+			async function secureDevice(relay: Running, store = new MemoryPairingStore(), device?: Device) {
+				const registered = device ?? (await registerDevice({ relay: relay.origin, token: TOKEN }));
+				const channels: SecureChannel[] = [];
+				const connector = connectDevice({
+					relay: relay.origin,
+					device: registered,
+					store,
+					handler: async (request) => new Response(`${request.method} ${new URL(request.url).pathname} ${await request.text()}`),
+				});
+				connector.onSecureChannel((channel) => {
+					channels.push(channel);
+					channel.onmessage = (message) => channel.send(message);
+				});
+				cleanups.push(() => connector.close());
+				await connector.ready;
+				return { device: registered, connector, channels, store };
+			}
+
+			test("pair from an offer, then talk and fetch over a channel the relay cannot read", async () => {
+				const relay = await start();
+				const { connector, channels } = await secureDevice(relay);
+				const visitorStore = new MemoryPairingStore();
+				const pairing = await pairWith((await connector.offerPairing()).url, { store: visitorStore, name: "phone" });
+				const channel = await openSecureChannel(pairing, { store: visitorStore });
+				cleanups.push(() => channel.close());
+				const reply = new Promise((resolve) => (channel.onmessage = resolve));
+				channel.send("hello over noise 🐙");
+				expect(await reply).toBe("hello over noise 🐙");
+				const large = crypto.getRandomValues(new Uint8Array(200_000));
+				const echoed = new Promise((resolve) => (channel.onmessage = resolve));
+				channel.send(large);
+				expect(await echoed).toEqual(large);
+				const response = await channel.fetch("/notes", { method: "POST", body: "secret" });
+				expect(await response.text()).toBe("POST /notes secret");
+				expect(channels.at(-1)?.visitor.name).toBe("phone");
+			});
+
+			test("reopen after the connector restarts with the same store", async () => {
+				const relay = await start();
+				const first = await secureDevice(relay);
+				const visitorStore = new MemoryPairingStore();
+				const pairing = await pairWith((await first.connector.offerPairing()).url, { store: visitorStore });
+				first.connector.close();
+				await first.connector.closed;
+				await secureDevice(relay, first.store, first.device);
+				const channel = await openSecureChannel(pairing, { store: visitorStore });
+				cleanups.push(() => channel.close());
+				expect(await (await channel.fetch("/again")).text()).toBe("GET /again ");
+			});
+
+			test("refuse a visitor that never paired, and a pairing code used twice", async () => {
+				const relay = await start();
+				const { connector } = await secureDevice(relay);
+				const offer = await connector.offerPairing();
+				const pairing = await pairWith(offer.url, { store: new MemoryPairingStore() });
+				await expect(openSecureChannel(pairing, { store: new MemoryPairingStore() })).rejects.toThrow();
+				await expect(pairWith(offer.url, { store: new MemoryPairingStore() })).rejects.toThrow();
 			});
 		});
 	});

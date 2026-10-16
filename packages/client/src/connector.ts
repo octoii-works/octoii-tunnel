@@ -14,13 +14,18 @@ import {
 	isCredential,
 	isDeviceId,
 	parseRelayOrigin,
+	SECURE_PATH,
 	deviceAddress,
 } from "@klein-works/takotunnel-protocol";
 import { reconnectDelay, STABLE_CONNECTION } from "./backoff.ts";
 import { ConnectorConnection } from "./connection.ts";
 import type { Device } from "./device.ts";
 import { type Handler, ServedHttpStream } from "./http-stream.ts";
-import { ServedWebSocketStream, type WebSocketHandler } from "./websocket-stream.ts";
+import { ServedWebSocketStream, type TunnelSocket, type WebSocketHandler } from "./websocket-stream.ts";
+import type { SecureChannel } from "./secure/channel.ts";
+import { respond } from "./secure/handshake.ts";
+import { type PairingOffer, PairingOffers } from "./secure/offers.ts";
+import { forgetVisitor, type PairingStore, staticKeyOf } from "./secure/store.ts";
 
 /** How a connector is set up. */
 export type ConnectorOptions = {
@@ -31,6 +36,8 @@ export type ConnectorOptions = {
 	readonly handler: Handler;
 	/** Accepts or refuses each visitor's WebSocket; without it, WebSockets are refused. */
 	readonly websocket?: WebSocketHandler;
+	/** Where the connector keeps its key and the visitors it paired with; without it, there is no secure mode. */
+	readonly store?: PairingStore;
 	/** Hears about failures the connector recovers from or stops on. */
 	readonly onError?: (error: Error) => void;
 };
@@ -50,6 +57,8 @@ export class Connector {
 	private readonly url: string;
 	private readonly address: string;
 	private readonly streams = new Map<number, ServedHttpStream | ServedWebSocketStream>();
+	private readonly offers = new PairingOffers();
+	private readonly channelListeners = new Set<(channel: SecureChannel) => void>();
 	private connection: ConnectorConnection | undefined;
 	private connectedAt = 0;
 	private attempt = 0;
@@ -73,6 +82,23 @@ export class Connector {
 			this.settleClosed = resolve;
 		});
 		this.connect();
+	}
+
+	/** A pairing offer to show a visitor, usually as a QR code; it works once, for five minutes. */
+	async offerPairing(): Promise<PairingOffer> {
+		const store = this.requireStore();
+		return this.offers.create(this.address, (await staticKeyOf(store)).publicKey);
+	}
+
+	/** Calls `listener` with each secure channel a paired visitor opens; returns what stops it. */
+	onSecureChannel(listener: (channel: SecureChannel) => void): () => void {
+		this.channelListeners.add(listener);
+		return () => this.channelListeners.delete(listener);
+	}
+
+	/** Forgets a paired visitor: its next channel is refused. */
+	async forgetVisitor(publicKey: string): Promise<void> {
+		await forgetVisitor(this.requireStore(), publicKey);
 	}
 
 	/** Stops the connector and closes its connection. */
@@ -132,13 +158,37 @@ export class Connector {
 			limits: connection.limits,
 			address: this.address,
 			handler: this.options.handler,
-			websocket: this.options.websocket,
+			websocket: (request: Request, accept: (protocol?: string) => TunnelSocket) => this.websocket(request, accept),
 			send: (type: FrameType, stream: number, payload?: Uint8Array) => connection.send(type, stream, payload),
 			done: (stream: ServedHttpStream | ServedWebSocketStream) => {
 				this.streams.delete(stream.id);
 				if (![...this.streams.values()].some((candidate) => candidate instanceof ServedHttpStream)) this.stopSweep();
 			},
 		};
+	}
+
+	/** A visitor's WebSocket: the secure path runs a handshake, any other goes to the service's handler. */
+	private websocket(request: Request, accept: (protocol?: string) => TunnelSocket): void | Response | Promise<void | Response> {
+		if (new URL(request.url).pathname !== SECURE_PATH) return this.options.websocket?.(request, accept) ?? new Response(null, { status: 501 });
+		const store = this.options.store;
+		if (store === undefined) return new Response(null, { status: 501 });
+		return staticKeyOf(store).then((key) => {
+			respond(accept(), {
+				key,
+				store,
+				offers: this.offers,
+				address: this.address,
+				handler: this.options.handler,
+				accepted: (channel) => {
+					for (const listener of this.channelListeners) listener(channel);
+				},
+			});
+		});
+	}
+
+	private requireStore(): PairingStore {
+		if (this.options.store === undefined) throw new Error("Secure mode needs a pairing store");
+		return this.options.store;
 	}
 
 	/** Resets an unknown or refused stream, ignoring a connection that is already gone. */

@@ -66,11 +66,16 @@ handshake message is one WebSocket message.
 - The visitor checks the connector's static key against the key it paired with (or, when pairing, the key in the offer)
   before it sends message 3, and aborts on a mismatch.
 - A refused handshake ends with a WebSocket close, code 4401, and no reason that tells a stranger more.
+- An accepted handshake: the connector sends `ready` as the first transport message. The visitor counts the channel
+  as open, and a pairing as done, only once `ready` arrives, since the visitor writes the last handshake message and
+  cannot otherwise tell whether the connector accepted it.
+- A handshake must finish, `ready` included, within 10 seconds.
 
 ### Transport
 
 - After the handshake each WebSocket message is one Noise transport message: at most 65535 bytes of ciphertext, so at
-  most 65519 bytes of plaintext. The nonce is the message's count, so a dropped, reordered or replayed message breaks
+  most 65519 bytes of plaintext. A channel frame therefore carries at most 65514 payload bytes; longer messages and
+  bodies go in several frames. The nonce is the message's count, so a dropped, reordered or replayed message breaks
   the channel, which the visitor library reopens.
 - Each side rekeys (Noise `Rekey`) every 2^20 messages.
 - The plaintext of a transport message is a channel frame:
@@ -90,6 +95,7 @@ handshake message is one WebSocket message.
   | `0x05` | `end` | empty: the body with that id is complete |
   | `0x06` | `cancel` | empty: the request with that id is abandoned |
   | `0x07` | `close` | JSON `{ "code", "reason" }`: the channel is closing |
+  | `0x08` | `ready` | empty: the connector accepted the handshake, sent first and once |
 
 - The service sees a secure channel as a `SecureChannel`: the visitor's paired identity (public key, name), messages
   either way, and fetch-style requests answered by a handler, so it can serve the same app over the channel as it

@@ -11,7 +11,24 @@ const connector = connectDevice({ relay: "https://takotunnel.dev", device, handl
 await connector.ready; // visitors reach device.address
 ```
 
-The handler gets a standard `Request` and returns a `Response`; bodies stream both ways under flow control. The
-connector stops for good when it is closed, replaced by a newer connector for the same device, or refused.
+The handler gets a standard `Request` and returns a `Response`; bodies stream both ways under flow control. Pass a
+`websocket` handler to accept visitors' WebSockets. The connector stops for good when it is closed, replaced by a newer
+connector for the same device, or refused.
+
+## Secure mode
+
+Give the connector a `PairingStore` and show a visitor an offer; the visitor pairs once, then opens end-to-end
+encrypted channels, on which the relay sees only ciphertext:
+
+```ts
+const connector = connectDevice({ relay, device, store, handler });
+const offer = await connector.offerPairing(); // show offer.url as a QR code
+connector.onSecureChannel((channel) => (channel.onmessage = (message) => channel.send(message)));
+
+// On the visitor:
+const pairing = await pairWith(offer.url, { store: visitorStore });
+const channel = await openSecureChannel(pairing, { store: visitorStore });
+const notes = await channel.fetch("/notes"); // answered by the device's own handler
+```
 
 The root entry runs wherever web standards do. The wire format lives in `@klein-works/takotunnel-protocol`.

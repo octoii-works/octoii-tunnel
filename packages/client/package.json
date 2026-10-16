@@ -14,7 +14,10 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@klein-works/takotunnel-protocol": "workspace:*"
+    "@klein-works/takotunnel-protocol": "workspace:*",
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
   },
   "description": "The takotunnel client: a device's connector, and a visitor's pairing and secure channels"
 }
