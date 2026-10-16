@@ -66,10 +66,12 @@ export async function pack(destination: string): Promise<Record<string, string>>
 					{
 						name: pkg.name,
 						version: pkg.version,
-						private: true,
 						type: "module",
 						license: "MIT",
 						description: pkg.raw["description"],
+						author: pkg.raw["author"],
+						homepage: pkg.raw["homepage"],
+						repository: pkg.raw["repository"],
 						exports,
 						dependencies,
 						files: ["dist", "LICENSE", "README.md", "CHANGELOG.md"],

@@ -1,9 +1,19 @@
 {
   "name": "@klein-works/takotunnel",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0-preview.0",
+  "description": "The takotunnel client: a device's connector, and a visitor's pairing and secure channels",
   "type": "module",
   "license": "MIT",
+  "author": "Elian Yang (https://elianyang.com)",
+  "homepage": "https://github.com/klein-works/takotunnel/tree/main/packages/client#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/klein-works/takotunnel.git",
+    "directory": "packages/client"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
@@ -18,6 +28,5 @@
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0"
-  },
-  "description": "The takotunnel client: a device's connector, and a visitor's pairing and secure channels"
+  }
 }

@@ -1,10 +1,19 @@
 {
   "name": "@klein-works/takotunnel-protocol",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0-preview.0",
+  "description": "The takotunnel wire format: frames, payloads, limits, flow control and formats",
   "type": "module",
   "license": "MIT",
-  "description": "The takotunnel wire format: frames, payloads, limits, flow control and formats",
+  "author": "Elian Yang (https://elianyang.com)",
+  "homepage": "https://github.com/klein-works/takotunnel/tree/main/packages/protocol#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/klein-works/takotunnel.git",
+    "directory": "packages/protocol"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

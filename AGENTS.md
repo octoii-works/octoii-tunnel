@@ -46,4 +46,4 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 - Each package keeps a `CHANGELOG.md` with an `[Unreleased]` section, entries under `### Added`, `### Changed`, `### Fixed`, `### Removed` or `### Breaking Changes`.
 - No secrets in the repo; tests generate their credentials and keys.
 - Read other repositories, such as Tako's, for reference only: never change, commit, install or format anything outside this repository.
-- Packages stay `"private": true` until Klein decides to publish them.
+- The packages are published to npm under `@klein-works`, all at one version; previews go under the `next` tag. Publish only when Klein asks.
