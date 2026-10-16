@@ -29,10 +29,12 @@ A WebSocket from the agent to `/v1/agent/<device id>`, carrying binary messages,
 headers on a WebSocket, so the agent authenticates in its first frame rather than on the upgrade.
 
 1. The agent sends `hello` within 10 seconds of the upgrade, or the relay closes with 4003.
-2. The relay checks the credential through `authorize`. A wrong one closes with 4001; a version it does not speak, 4002.
+2. The relay core checks the credential, then applies `authorize`. A hook cannot accept an invalid credential.
+   A wrong credential closes with 4001; a version it does not speak, 4002.
 3. The relay answers `welcome` with its limits. Streams start.
 
-A newer agent connection for the same device replaces the older one, which the relay closes with 4000.
+A newer agent connection for the same device replaces the older one only after authentication and authorization
+succeed. The relay closes the older connection with 4000. A rejected connection leaves the current one intact.
 
 ### Frame
 
@@ -63,7 +65,7 @@ not exist is ignored after a `reset`; a malformed frame closes the connection wi
 | `0x20` | `ping` | both | 0 | 8 bytes, echoed in `pong` |
 | `0x21` | `pong` | both | 0 | the 8 bytes of the `ping` |
 
-`path` includes the query string. `headers` keep their order and repeats.
+`path` includes the query string. `headers` is a list of name/value pairs; see the implemented subset for host normalization.
 
 ### Flow control
 
@@ -93,7 +95,7 @@ The relay does not forward hop-by-hop headers (`connection`, `keep-alive`, `prox
 | Code | Meaning | The agent |
 | --- | --- | --- |
 | 1000 | closed normally | stops |
-| 1012 | the relay restarts or moves the device's object | reconnects |
+| 1012 | the relay restarts or moves the device session | reconnects |
 | 4000 | replaced by a newer connection for the device | stops |
 | 4001 | the credential is wrong or the device was removed | stops, and reports it |
 | 4002 | unsupported version | stops, and reports what the relay speaks |
@@ -105,5 +107,27 @@ reset after a connection that lasted a minute.
 
 ### Reset codes
 
-`cancelled` (the visitor went away), `idle`, `refused` (the handler refused the stream), `too_large`, `protocol` (a
-malformed or out-of-credit frame), `internal`.
+`cancelled` (the visitor went away or an early response stopped its upload), `idle`, `refused` (the handler refused
+the stream), `too_large`, `protocol` (a malformed or out-of-credit frame), `internal`. The reason is a string of at
+most 256 characters.
+
+## Implemented HTTP subset
+
+The implementation supports HTTP streams. Visitor WebSocket upgrades return 501; the client reserves
+`/.takotunnel/secure` and returns 501 without invoking the application handler. Message frames and secure channels
+are not implemented.
+
+`pingInterval` and `streamIdle` are expressed in milliseconds in `welcome`. The supported bounds are 1–1000 streams,
+1024–65536 payload bytes per frame, a receive window from `maxFrame` through 1048576 bytes, heartbeat intervals up to
+300000 ms, and idle deadlines up to 3600000 ms. Registration bodies are limited to 4096 bytes, names to 128 characters
+and header lists to 128 entries. Agent connections must authenticate within 10000 ms.
+
+HTTP streams end independently in each direction. A handler may finish a response before consuming the request;
+the agent sends response `end`, then `reset` to stop the remaining upload. The relay preserves an already completed
+response body while cancelling the upload. Until a response body is consumed or cancelled it still occupies a stream
+slot. Visitor cancellation aborts the handler request and its response producer. Request and response trailers are
+not supported in this subset.
+
+Headers use the host's standard `Headers` representation: ordinary duplicates can be combined and ordering can be
+normalized. Repeated `set-cookie` headers must remain distinct. Inbound `x-forwarded-*` fields are removed before the
+relay adds values from trusted host context. Frame decoding rejects invalid lengths and payloads before use.

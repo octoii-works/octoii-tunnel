@@ -1,0 +1,22 @@
+{
+  "name": "@klein-works/takotunnel",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol/index.ts"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "@noble/ciphers": "2.4.0"
+  },
+  "description": "Portable tunnel client and shared protocol"
+}

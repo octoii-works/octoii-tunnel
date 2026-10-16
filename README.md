@@ -1,83 +1,88 @@
 # takotunnel
 
-Reach a service on your own machine from anywhere, without opening a port, and without the relay in between being
-able to read what you send.
+Reach a service on a machine behind NAT through a relay that the machine connects out to. The client and relay
+cores use web-standard APIs; hosts supply networking, device storage and scheduling.
 
-Your machine connects out to a relay and keeps that connection open. Visitors reach the machine at its own address on
-the relay, `https://<device>.<relay domain>`, and the relay forwards their requests over the connection. Paired
-visitors can talk to the machine end to end encrypted: the relay then forwards only ciphertext.
+The working implementation supports registration, agent authentication and reconnection, and streamed HTTP
+requests and responses. Visitor WebSocket forwarding, pairing, encrypted channels and the local-port CLI remain
+implementation targets described in the specs. **Current HTTP traffic is plain mode: the relay can read it.**
 
-Tako uses takotunnel so you can talk to the agent on your PC from your phone. Anything else that serves HTTP or
-WebSockets can use it too.
+## Packages
 
-## Two modes
-
-| Mode | What the relay sees | Who can use it |
-| --- | --- | --- |
-| **Plain** | The HTTP requests and WebSocket messages it forwards, as any reverse proxy does | Any HTTP or WebSocket client, such as a browser opening the device's address |
-| **Secure** | Only ciphertext: a Noise channel runs between the visitor and the machine | A visitor paired with the machine, using takotunnel's visitor library |
-
-In both modes the relay keeps nothing of the traffic: no bodies, no header values, no query strings.
-
-## Pieces
-
-| Package | What it is |
+| Package | Entries |
 | --- | --- |
-| [`@klein-works/takotunnel`](packages/client) | The client. On the machine: register it, keep its connection to the relay, serve what visitors ask through a handler, offer pairings, and accept secure channels. On the visitor: pair, and open a secure channel. A `takotunnel` command exposes a local port |
-| [`@klein-works/takotunnel-relay`](packages/relay) | The relay, built on the standard Workers and Durable Object APIs: a Worker that routes, and one Durable Object per device |
+| `@klein-works/takotunnel` | Root: `registerDevice`, `removeDevice`, `connectAgent`. `/protocol`: frame codecs, validation and flow control |
+| `@klein-works/takotunnel-relay` | Root: routing, device sessions, host interfaces and an in-memory device store. `/bun`: network adapter and standalone server |
 
-## Use it
+Both packages are MIT. Root entries contain no server-runtime imports. There is no bundled database or cloud
+provider SDK. The relay depends only on the client's shared protocol; the client never depends on the relay.
+Packages remain private until publication is explicitly enabled.
 
-Expose a local port:
-
-```sh
-takotunnel register --relay https://takotunnel.dev   # once: prints the device's address
-takotunnel http 3000                                  # forwards visitors to localhost:3000
-```
-
-From code, on the machine:
+## Client
 
 ```ts
 import { connectAgent, registerDevice } from "@klein-works/takotunnel";
 
-const device = await registerDevice({ relay: "https://takotunnel.dev", token });
-const agent = connectAgent({ relay: "https://takotunnel.dev", device, handler: (request) => app.fetch(request) });
-const offer = await agent.offerPairing(); // show offer.url as a QR code to the visitor
-agent.onSecureChannel((channel) => serve(channel));
+const relay = "https://relay.example.com";
+const device = await registerDevice({ relay, token });
+const agent = connectAgent({
+  relay,
+  device,
+  handler: (request) => app.fetch(request),
+});
+await agent.ready;
+// Visitors can now reach device.address.
+// Save device securely to reconnect without registering again.
 ```
 
-On the visitor:
+The handler receives a standard `Request` and returns a `Response`. Bodies stream under per-stream flow control.
+An agent reconnects after a connection failure. Replaced agents and agents with invalid credentials stop.
+
+## Relay
+
+The included network adapter runs in one Bun process. The host explicitly supplies its device store:
 
 ```ts
-import { pairWith, openSecureChannel } from "@klein-works/takotunnel";
+import { createMemoryDeviceStore } from "@klein-works/takotunnel-relay";
+import { serveRelay } from "@klein-works/takotunnel-relay/bun";
 
-const pairing = await pairWith(offerUrl, { store }); // once, from the QR code
-const channel = await openSecureChannel(pairing, { store });
-channel.send(message);
+const relay = serveRelay({
+  origin: "http://localhost:8787",
+  registrationToken: token,
+  store: createMemoryDeviceStore(),
+  port: 8787,
+});
+// await relay.close();
 ```
 
-## Run your own relay
+The memory store is for development and tests: registrations disappear when the process ends. An application
+implements `DeviceStore` to keep device records in its own storage. It owns that storage's lifecycle. No traffic
+bodies, header values or query strings belong in device records.
 
-The relay needs the standard Workers and Durable Object APIs: `fetch` handlers, Durable Object SQLite storage, alarms
-and hibernating WebSockets. Deploy `packages/relay` wherever those run, with:
+For public deployment, supply a wildcard domain and TLS, persistent device storage, and a registration token.
+Every request for one device must reach the process holding its agent connection. Sharing a store alone does not
+make a multi-process relay. Other runtimes can implement the same host interfaces; their network adapters are not
+included yet.
 
-- a wildcard domain, `*.<your domain>`, pointing at it, and the bare domain for registration;
-- `REGISTRATION_TOKEN`, the secret a machine presents to register.
+## Development
 
-Point the client at your relay with `--relay` or the `relay` option.
+```sh
+bun install
+bun run check
+bun run build
+bun run pack
+bun run verify:packages
+```
 
-## Docs
+`bun run relay` starts the development relay using in-memory storage. It reads `REGISTRATION_TOKEN` (required),
+`RELAY_ORIGIN`, `HOST` and `PORT` from the environment. See [Development](docs/development.md) for packaging and checks.
 
-- [Design](docs/design.md): the parts, how they fit, and what the core leaves to a hosted service.
-- [Protocol](docs/protocol.md): the relay's HTTP API and the frames on a machine's connection.
-- [Security](docs/security.md): pairing, the secure channel, and what each party can and cannot see.
+## Specs
+
+- [Design](docs/design.md): architecture, host boundaries and implementation targets.
+- [Protocol](docs/protocol.md): HTTP routes, agent frames and flow control.
+- [Security](docs/security.md): the pairing and encrypted-channel design to implement.
 
 ## License
 
-- The relay and the rest of this repository: [AGPL-3.0-only](LICENSE). You may use, change and run it; if you let
-  others use a changed version over a network, you must offer them its source under the same license.
-- The client, `@klein-works/takotunnel`: [MIT](packages/client/LICENSE), so anything may embed it.
-
-## Status
-
-Under construction.
+The repository and both packages are [MIT](LICENSE).

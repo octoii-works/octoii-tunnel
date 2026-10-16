@@ -28,7 +28,9 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 - KISS and YAGNI. No abstractions before they are needed, no compatibility shims: change the API and migrate the callers.
 - TypeScript: no `any`, no needless type assertions; validate external input (frames, HTTP, handshake payloads) before narrowing it. `tsconfig.base.json` is strict for every package.
 - A package's root entry is platform-neutral: web standards only (`fetch`, `WebSocket`, streams, `crypto.getRandomValues`), so the client runs in Bun, Node, browsers, workers and Hermes. Platform code lives in subpaths such as `/bun`. Dependencies only point down.
-- Bun first, Node compatible. The relay uses the standard Workers and Durable Object APIs only.
+- Bun first, Node compatible. Both client and relay cores are independent of the host runtime. Relay hosts supply server APIs, device storage, scheduling and device routing. Do not add database implementations, SQL or cloud-provider SDKs to this repository.
+- The included relay network adapter runs in a single Bun process and takes an injected `DeviceStore`. The bundled memory store is for development and tests. Other runtime adapters and multi-process self-hosting are outside the initial implementation.
+- Use small, explicit host interfaces and the `authorize` and `meter` hooks; no plugin framework. Device credential validation, protocol validation and resource limits remain core responsibilities.
 - Cryptography uses audited primitives (the `@noble` libraries); no hand-rolled ciphers, curves or hashes.
 - Keep the core small: what a hosted service needs goes through `authorize` and `meter`.
 
@@ -36,7 +38,7 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 
 - Docs describe the design as it is, not its history: no "previously", "renamed" or "v2".
 - Repo docs, comments and commit messages name no other projects or products.
-- Self-hosting docs do not prescribe a platform: the relay needs the standard Workers and Durable Object APIs, and users choose where to run it.
+- Self-hosting docs describe required capabilities and available adapters, without prescribing a hosting provider. A relay host must support long-lived connections, streaming and routing each device to its session owner.
 
 ## Checks
 
@@ -45,4 +47,4 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 - Each package keeps a `CHANGELOG.md` with an `[Unreleased]` section, entries under `### Added`, `### Changed`, `### Fixed`, `### Removed` or `### Breaking Changes`.
 - No secrets in the repo; tests generate their credentials and keys.
 - Read other repositories, such as Tako's, for reference only: never change, commit, install or format anything outside this repository.
-- Licenses: the repository, and so the relay, is under AGPL-3.0-only (`LICENSE`); the client package is under MIT (`packages/client/LICENSE`), so the MIT-licensed services that embed it, such as Tako, stay MIT. Each package's `license` field says which, and packing copies its license file in. Packages stay `"private": true` until Klein decides to publish them.
+- Licenses: the repository and both packages are MIT (`LICENSE`). Each package declares `"license": "MIT"`, and packing includes its license file. Packages stay `"private": true` until Klein decides to publish them.

@@ -1,0 +1,35 @@
+{
+  "name": "takotunnel-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test",
+    "format": "prettier --write \"**/*.{ts,js,mjs}\"",
+    "format:check": "prettier --check \"**/*.{ts,js,mjs}\"",
+    "lint": "oxlint --deny-warnings packages scripts",
+    "typecheck": "tsc -p packages/client && tsc -p packages/relay && tsc -p tsconfig.bun.json",
+    "relay": "bun scripts/relay.ts",
+    "test": "bun test --no-env-file --no-install",
+    "build": "bun scripts/build.ts",
+    "pack": "bun scripts/pack.ts",
+    "verify:packages": "bun scripts/verify-packages.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.3",
+    "typescript": "6.0.3",
+    "oxlint": "1.87.0",
+    "prettier": "3.9.10"
+  },
+  "packageManager": "bun@1.4.3",
+  "engines": {
+    "bun": "1.4.3"
+  },
+  "trustedDependencies": [],
+  "prettier": {
+    "useTabs": true,
+    "printWidth": 160
+  }
+}

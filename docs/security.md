@@ -1,5 +1,8 @@
 # takotunnel security
 
+Pairing and secure channels in this specification are implementation targets. The current client implements only
+plain HTTP tunneling; its relay can read the traffic. No secure-channel API is available yet.
+
 What a relay operator, a network attacker and a stranger can and cannot do, and how pairing and the secure channel
 work.
 

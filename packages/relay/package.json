@@ -1,0 +1,21 @@
+{
+  "name": "@klein-works/takotunnel-relay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bun": "./src/bun/index.ts"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "dependencies": {
+    "@klein-works/takotunnel": "workspace:*"
+  },
+  "description": "Portable tunnel relay with injectable host capabilities"
+}
