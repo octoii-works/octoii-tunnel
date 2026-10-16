@@ -74,9 +74,8 @@ Point the client at your relay with `--relay` or the `relay` option.
 
 ## License
 
-- The relay and the rest of this repository: [FSL-1.1-MIT](LICENSE). You may use, change and run it, including for
-  your own and your company's use; you may not offer it to others as a competing commercial service. Each version
-  becomes MIT two years after its release.
+- The relay and the rest of this repository: [AGPL-3.0-only](LICENSE). You may use, change and run it; if you let
+  others use a changed version over a network, you must offer them its source under the same license.
 - The client, `@klein-works/takotunnel`: [MIT](packages/client/LICENSE), so anything may embed it.
 
 ## Status
