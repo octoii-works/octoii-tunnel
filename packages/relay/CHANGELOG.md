@@ -4,7 +4,6 @@
 
 ### Added
 
-- Portable relay routing and per-device sessions with authentication, flow control and policy hooks.
-- Injectable device storage and an in-memory implementation for development and tests.
-- A single-process network adapter and standalone server under the Bun subpath.
-- JavaScript and declaration builds with isolated package verification.
+- `createRelay()`: the router, with registration on the base domain and every device request handed to its session.
+- `DeviceSession`: authenticates connectors, answers heartbeats, opens HTTP streams under flow control, and resumes from its sockets' attachments when its host wakes it.
+- `/bun`: `serveRelay()` and `createBunRelay()`, one Bun process with device records in SQLite.

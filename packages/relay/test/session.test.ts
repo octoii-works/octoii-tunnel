@@ -1,207 +1,168 @@
-import { expect, test } from "bun:test";
-import { credentialHash, decodeFrame, encodeFrame, jsonBytes, randomCredential, randomDeviceId, types, type Frame } from "@klein-works/takotunnel/protocol";
-import { createMemoryDeviceStore, DeviceSession, type Decision, type DeviceStore, type RelayOptions } from "../src/index.ts";
+import { describe, expect, test } from "bun:test";
+import {
+	CLOSE_CODE,
+	DEFAULT_LIMITS,
+	decodeFrame,
+	encodeFrame,
+	encodeHello,
+	FRAME_TYPE,
+	hashCredential,
+	MAX_FRAME_SIZE,
+	newCredential,
+	newDeviceId,
+	PING,
+	PONG,
+} from "@klein-works/takotunnel-protocol";
+import { DeviceSession, type SessionSocket, type SocketAttachment } from "../src/index.ts";
 
-function deferred<T>() {
-	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((done) => {
-		resolve = done;
-	});
-	return { promise, resolve };
+const ORIGIN = "https://relay.test";
+
+/** A socket that records what the session sends and how it closes it. */
+class FakeSocket implements SessionSocket {
+	readonly sent: (Uint8Array | string)[] = [];
+	closedWith: number | undefined;
+	private kept: SocketAttachment | undefined;
+	constructor(attachment?: SocketAttachment) {
+		this.kept = attachment;
+	}
+	send(bytes: Uint8Array): void {
+		this.sent.push(bytes);
+	}
+	sendText(text: string): void {
+		this.sent.push(text);
+	}
+	close(code: number): void {
+		this.closedWith ??= code;
+	}
+	bufferedAmount(): number {
+		return 0;
+	}
+	attachment(): SocketAttachment | undefined {
+		return this.kept;
+	}
+	attach(attachment: SocketAttachment): void {
+		this.kept = attachment;
+	}
+	/** The types of the frames sent. */
+	frameTypes(): number[] {
+		return this.sent.flatMap((message) => (typeof message === "string" ? [] : [decodeFrame(message, MAX_FRAME_SIZE).type]));
+	}
 }
 
-async function fixture(options: Partial<RelayOptions> = {}, store: DeviceStore = createMemoryDeviceStore()) {
-	const id = randomDeviceId();
-	const credential = randomCredential();
-	const origin = "https://relay.example.com";
-	await store.create({ id, credentialHash: credentialHash(credential), name: "" });
-	let now = 1000;
-	let timer: { deadline: number; callback: () => void } | undefined;
+/** A session on a fake host whose clock moves only when told. */
+function fakeSession(options: { live?: FakeSocket[]; authorize?: () => Promise<{ allowed: true }> } = {}) {
+	const deviceId = newDeviceId();
+	const credential = newCredential();
+	let record: { id: string; name: string; credentialHash: string } | undefined = { id: deviceId, name: "", credentialHash: hashCredential(credential) };
+	let now = 1_000_000;
+	const timers: { at: number; callback: () => void }[] = [];
 	const session = new DeviceSession(
-		id,
+		deviceId,
 		{
-			store,
-			scheduler: {
+			records: { get: async () => record, delete: async () => (record = undefined) },
+			sockets: { live: () => options.live ?? [], lastHeartbeat: () => undefined },
+			clock: {
 				now: () => now,
-				schedule(deadline, callback) {
-					timer = { deadline, callback };
-					return () => {
-						timer = undefined;
-					};
+				after: (delay, callback) => {
+					const timer = { at: now + delay, callback };
+					timers.push(timer);
+					return () => timers.splice(timers.indexOf(timer), 1);
 				},
 			},
 		},
-		{ origin, registrationToken: randomCredential(), ...options },
+		{ origin: ORIGIN, registrationToken: "token", ...(options.authorize === undefined ? {} : { authorize: options.authorize }) },
 	);
-	const context = {
-		address: "127.0.0.1",
-		upgrade: () => {
-			throw new Error("Unexpected upgrade");
-		},
+	const advance = (ms: number) => {
+		now += ms;
+		for (const timer of timers.filter((candidate) => candidate.at <= now)) {
+			timers.splice(timers.indexOf(timer), 1);
+			timer.callback();
+		}
 	};
-	function agent() {
-		const frames: Frame[] = [];
-		const closes: number[] = [];
-		const connection = session.accept({
-			send: (bytes) => {
-				frames.push(decodeFrame(bytes));
-			},
-			close: (code) => {
-				closes.push(code);
-			},
-		});
-		return { frames, closes, connection, hello: () => connection.message(encodeFrame(types.hello, 0, jsonBytes({ version: 1, credential, agent: "test" }))) };
-	}
-	return {
-		session,
-		store,
-		agent,
-		id,
-		visit: (init?: RequestInit) => session.fetch(new Request(`https://${id}.relay.example.com/`, init), context),
-		remove: () => session.fetch(new Request(`${origin}/v1/devices/${id}`, { method: "DELETE", headers: { authorization: `Bearer ${credential}` } }), context),
-		advance(milliseconds: number) {
-			now += milliseconds;
-			if (timer && timer.deadline <= now) {
-				const callback = timer.callback;
-				timer = undefined;
-				callback();
-			}
-		},
+	const connect = async (secret = credential): Promise<FakeSocket> => {
+		const socket = new FakeSocket();
+		session.opened(socket);
+		await session.message(socket, encodeFrame(FRAME_TYPE.HELLO, 0, encodeHello({ version: 1, credential: secret, connector: "test/1" })));
+		return socket;
 	};
+	const visit = (path = "/") =>
+		session.fetch(new Request(`https://${deviceId}.relay.test${path}`), { address: "203.0.113.1", acceptConnector: () => undefined });
+	return { session, deviceId, credential, advance, connect, visit };
 }
 
-test("slow consumers retain their stream slot until buffered bytes are read", async () => {
-	const host = await fixture({ limits: { maxStreams: 1 } });
-	const agent = host.agent();
-	await agent.hello();
-	const incoming = host.visit();
-	await Promise.resolve();
-	await Promise.resolve();
-	await Promise.resolve();
-	const open = agent.frames.find((frame) => frame.type === types.open);
-	if (!open) throw new Error("No stream opened");
-	await agent.connection.message(encodeFrame(types.head, open.stream, jsonBytes({ status: 200, headers: [] })));
-	await agent.connection.message(encodeFrame(types.data, open.stream, new TextEncoder().encode("buffered")));
-	await agent.connection.message(encodeFrame(types.end, open.stream));
-	const response = await incoming;
-	expect((await host.visit())?.status).toBe(503);
-	expect(await response?.text()).toBe("buffered");
-	const abort = new AbortController();
-	const next = host.visit({ signal: abort.signal });
-	await Promise.resolve();
-	await Promise.resolve();
-	await Promise.resolve();
-	abort.abort();
-	expect((await next)?.status).toBe(502);
-	expect(agent.frames.filter((frame) => frame.type === types.open)).toHaveLength(2);
-	expect(agent.frames.some((frame) => frame.type === types.reset)).toBe(true);
-	host.session.shutdown();
-});
-
-test("response completion followed by reset preserves the body and cancels a blocked upload", async () => {
-	const host = await fixture({ limits: { maxFrame: 1024, initialWindow: 1024 } });
-	const agent = host.agent();
-	await agent.hello();
-	const cancelled = deferred<void>();
-	const body = new ReadableStream<Uint8Array>({
-		start(controller) {
-			controller.enqueue(new Uint8Array(65536));
-		},
-		cancel() {
-			cancelled.resolve();
-		},
+describe("device sessions", () => {
+	test("welcome a connector with the right credential and close one with a wrong one", async () => {
+		const { connect } = fakeSession();
+		const good = await connect();
+		expect(good.frameTypes()).toEqual([FRAME_TYPE.WELCOME]);
+		expect(good.attachment()).toMatchObject({ role: "connector", authenticated: true, nextStream: 1 });
+		const bad = await connect(newCredential());
+		expect(bad.closedWith).toBe(CLOSE_CODE.UNAUTHORIZED);
+		expect(good.closedWith).toBeUndefined();
 	});
-	const incoming = host.visit({ method: "POST", body });
-	await Promise.resolve();
-	await Promise.resolve();
-	await Promise.resolve();
-	const open = agent.frames.find((frame) => frame.type === types.open);
-	if (!open) throw new Error("No stream opened");
-	await agent.connection.message(encodeFrame(types.head, open.stream, jsonBytes({ status: 413, headers: [] })));
-	await agent.connection.message(encodeFrame(types.data, open.stream, new TextEncoder().encode("refused")));
-	await agent.connection.message(encodeFrame(types.end, open.stream));
-	await agent.connection.message(encodeFrame(types.reset, open.stream, jsonBytes({ code: "cancelled", reason: "Upload refused" })));
-	await cancelled.promise;
-	const response = await incoming;
-	expect(response?.status).toBe(413);
-	expect(await response?.text()).toBe("refused");
-	expect(agent.closes).toHaveLength(0);
-	host.session.shutdown();
-});
 
-test("a delayed policy rejection leaves the authenticated agent connected", async () => {
-	const decision = deferred<Decision>();
-	let count = 0;
-	const host = await fixture({ authorize: (event) => (event.kind === "agent" && count++ > 0 ? decision.promise : { allowed: true }) });
-	const first = host.agent();
-	await first.hello();
-	const second = host.agent();
-	const pending = second.hello();
-	decision.resolve({ allowed: false, status: 403 });
-	await pending;
-	expect(first.closes).toHaveLength(0);
-	expect(second.closes).toEqual([4001]);
-	host.session.shutdown();
-});
-
-test("removal cannot be bypassed by an asynchronous authentication hook", async () => {
-	const decision = deferred<Decision>();
-	const entered = deferred<void>();
-	const host = await fixture({
-		authorize: () => {
-			entered.resolve();
-			return decision.promise;
-		},
+	test("answer a ping with a pong, and close on any other text", async () => {
+		const { session, connect } = fakeSession();
+		const socket = await connect();
+		await session.message(socket, PING);
+		expect(socket.sent.at(-1)).toBe(PONG);
+		await session.message(socket, "hello?");
+		expect(socket.closedWith).toBe(CLOSE_CODE.MALFORMED);
 	});
-	const agent = host.agent();
-	const pending = agent.hello();
-	await entered.promise;
-	expect((await host.remove())?.status).toBe(204);
-	decision.resolve({ allowed: true });
-	await pending;
-	expect(agent.frames.some((frame) => frame.type === types.welcome)).toBe(false);
-	expect(await host.store.get(host.id)).toBeUndefined();
-	expect(agent.closes).toEqual([4001]);
-});
 
-test("hello and heartbeat deadlines close abandoned connections", async () => {
-	const host = await fixture();
-	const pending = host.agent();
-	host.advance(10_000);
-	expect(pending.closes).toEqual([4003]);
-	const active = host.agent();
-	await active.hello();
-	host.advance(20_000);
-	expect(active.frames.at(-1)?.type).toBe(types.ping);
-	host.advance(40_000);
-	expect(active.closes).toEqual([1011]);
-});
+	test("close a connection that sends no hello in time", () => {
+		const { session, advance } = fakeSession();
+		const socket = new FakeSocket();
+		session.opened(socket);
+		advance(9_999);
+		expect(socket.closedWith).toBeUndefined();
+		advance(1);
+		expect(socket.closedWith).toBe(CLOSE_CODE.HELLO_TIMEOUT);
+	});
 
-test("shutdown fails an in-flight visitor without deleting caller-owned records", async () => {
-	const host = await fixture();
-	const agent = host.agent();
-	await agent.hello();
-	const incoming = host.visit();
-	await Promise.resolve();
-	await Promise.resolve();
-	await Promise.resolve();
-	host.session.shutdown();
-	expect((await incoming)?.status).toBe(502);
-	expect(agent.closes).toEqual([1012]);
-	expect(await host.store.get(host.id)).toBeDefined();
-});
+	test("call a device offline, and close its connection, once its heartbeats stop", async () => {
+		const { session, connect, advance, visit } = fakeSession();
+		const socket = await connect();
+		advance(2 * DEFAULT_LIMITS.heartbeat);
+		await session.message(socket, PING);
+		advance(3 * DEFAULT_LIMITS.heartbeat);
+		const pending = visit();
+		await Bun.sleep(0);
+		expect(socket.frameTypes()).toContain(FRAME_TYPE.OPEN);
+		void pending;
+		advance(1);
+		expect((await visit())?.status).toBe(502);
+		expect(socket.closedWith).toBe(CLOSE_CODE.INTERNAL_ERROR);
+	});
 
-test("a new stream schedules its own deadline before the next heartbeat", async () => {
-	const host = await fixture({ limits: { streamIdle: 5 } });
-	const agent = host.agent();
-	await agent.hello();
-	const incoming = host.visit();
-	await Promise.resolve();
-	await Promise.resolve();
-	await Promise.resolve();
-	host.advance(5);
-	expect((await incoming)?.status).toBe(502);
-	expect(agent.frames.at(-1)?.type).toBe(types.reset);
-	expect(agent.closes).toHaveLength(0);
-	host.session.shutdown();
+	test("resume an authenticated connection from its attachment, and close one that had not authenticated", async () => {
+		const authenticated = new FakeSocket({ role: "connector", authenticated: true, nextStream: 7, welcomedAt: 1_000_000 });
+		const unauthenticated = new FakeSocket({ role: "connector", authenticated: false, nextStream: 1, welcomedAt: 0 });
+		const { session, visit } = fakeSession({ live: [authenticated, unauthenticated] });
+		session.resume();
+		expect(unauthenticated.closedWith).toBe(CLOSE_CODE.HELLO_TIMEOUT);
+		void visit();
+		await Bun.sleep(0);
+		const open = authenticated.sent.find((message) => typeof message !== "string" && decodeFrame(message, MAX_FRAME_SIZE).type === FRAME_TYPE.OPEN);
+		expect(open === undefined || typeof open === "string" ? undefined : decodeFrame(open, MAX_FRAME_SIZE).stream).toBe(7);
+		expect(authenticated.attachment()?.nextStream).toBe(8);
+	});
+
+	test("refuse an authentication still in flight when the device is removed", async () => {
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const { session, deviceId, credential, connect } = fakeSession({ authorize: () => gate.then(() => ({ allowed: true as const })) });
+		const connecting = connect();
+		await Bun.sleep(0);
+		const removal = await session.fetch(
+			new Request(`${ORIGIN}/v1/devices/${deviceId}`, { method: "DELETE", headers: { authorization: `Bearer ${credential}` } }),
+			{
+				address: "",
+				acceptConnector: () => undefined,
+			},
+		);
+		expect(removal?.status).toBe(204);
+		release();
+		expect((await connecting).closedWith).toBe(CLOSE_CODE.UNAUTHORIZED);
+	});
 });

@@ -1,17 +1,22 @@
-export { createRelay } from "./router.ts";
-export { DeviceSession } from "./session.ts";
-export { createMemoryDeviceStore } from "./memory.ts";
+/**
+ * The takotunnel relay's core: the router and the device session, and the interfaces a host implements to run them.
+ * Hosts live in subpaths: `/worker` for the Workers and Durable Object APIs, `/bun` for one Bun process.
+ */
+export { errorResponse } from "./hooks.ts";
 export type {
-	AgentConnection,
 	Authorization,
+	Clock,
 	Decision,
 	DeviceRecord,
-	DeviceStore,
+	DeviceRecords,
 	MeterEvent,
-	RelayDirectory,
+	RelayHost,
 	RelayOptions,
-	RelaySocket,
 	RequestContext,
-	Scheduler,
 	SessionHost,
+	SessionSocket,
+	SessionSockets,
+	SocketAttachment,
 } from "./host.ts";
+export { createRelay, type Relay } from "./router.ts";
+export { DeviceSession } from "./session.ts";

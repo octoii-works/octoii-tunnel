@@ -1,421 +1,298 @@
+/**
+ * One device's session: the only owner of its connector connection and its streams. It authenticates the connector,
+ * answers heartbeats, opens a stream per visitor request, and rebuilds itself from its sockets when its host wakes it.
+ */
 import {
-	credentialHash,
+	CLOSE_CODE,
+	DEFAULT_LIMITS,
+	checkLimits,
 	decodeFrame,
-	defaultLimits,
+	decodeHello,
 	encodeFrame,
-	equalSecrets,
-	forwardedHeaders,
-	jsonBytes,
-	parseHead,
-	parseHello,
-	parseLimits,
-	ProtocolError,
-	ReceiveBody,
-	SendWindow,
-	sendBody,
-	types,
-	validateReset,
-	windowAmount,
-	windowBytes,
+	encodeReset,
+	encodeWelcome,
+	FRAME_TYPE,
 	type Frame,
 	type FrameType,
+	HELLO_TIMEOUT,
+	hashCredential,
+	isCredential,
 	type Limits,
-} from "@klein-works/takotunnel/protocol";
-import {
-	authorize,
-	errorResponse,
-	recordMeter,
-	type AgentConnection,
-	type RelayOptions,
-	type RelaySocket,
-	type RequestContext,
-	type SessionHost,
-} from "./host.ts";
+	MISSED_HEARTBEATS,
+	PING,
+	PONG,
+	PROTOCOL_VERSION,
+	ProtocolError,
+	sameSecret,
+} from "@klein-works/takotunnel-protocol";
+import { authorize, errorResponse, meter, refusal } from "./hooks.ts";
+import type { RelayOptions, RequestContext, SessionHost, SessionSocket } from "./host.ts";
+import { HttpStream, type StreamLink } from "./http-stream.ts";
 
-interface Agent {
-	socket: RelaySocket;
-	authenticated: boolean;
-	closed: boolean;
-	started: number;
-	lastSeen: number;
-	lastPing: number;
-}
-interface Exchange {
-	id: number;
-	method: string;
-	window: SendWindow;
-	body: ReceiveBody;
-	abort: AbortController;
-	resolve: (response: Response) => void;
-	head: boolean;
-	requestEnded: boolean;
-	responseEnded: boolean;
-	responseConsumed: boolean;
-	noBody: boolean;
-	started: number;
-	lastSeen: number;
-	bytesIn: number;
-	bytesOut: number;
-	unlisten: () => void;
-}
+/** The most connector connections that may wait to authenticate at once. */
+const MAX_PENDING_CONNECTIONS = 4;
+/** Bytes a connector socket may have waiting beyond what flow control allows, for control frames. */
+const SOCKET_BUFFER_SLACK = 1024 * 1024;
 
+/** The authenticated connector connection. */
+type Connector = { readonly socket: SessionSocket; readonly connectedAt: number; heartbeatAt: number };
+
+/** A connector connection that has not authenticated yet. */
+type Pending = { readonly cancelTimeout: () => void; authenticating: boolean };
+
+/** One device's session on the relay. */
 export class DeviceSession {
+	readonly deviceId: string;
+	private readonly host: SessionHost;
+	private readonly options: RelayOptions;
 	private readonly limits: Limits;
-	private current: Agent | undefined;
-	private readonly agents = new Set<Agent>();
-	private readonly exchanges = new Map<number, Exchange>();
-	private nextId = 1;
-	private cancelTimer: (() => void) | undefined;
+	private readonly origin: URL;
+	private readonly pending = new Map<SessionSocket, Pending>();
+	private readonly streams = new Map<number, HttpStream>();
+	private readonly link: StreamLink;
+	private connector: Connector | undefined;
+	private nextStream = 1;
+	private stopSweep: (() => void) | undefined;
+	private removed = false;
+	/** Bumped by every change that must cancel an authentication in flight. */
 	private revision = 0;
-	private removing = false;
-	constructor(
-		readonly id: string,
-		private readonly host: SessionHost,
-		private readonly options: RelayOptions,
-	) {
-		this.limits = parseLimits(jsonBytes({ ...defaultLimits, ...options.limits }));
-	}
 
-	async fetch(request: Request, context: RequestContext): Promise<Response | undefined> {
-		const record = await this.host.store.get(this.id);
-		if (!record || this.removing) return errorResponse(404, "not_found", "Unknown device");
-		const url = new URL(request.url);
-		if (url.host === new URL(this.options.origin).host) {
-			if (url.pathname === `/v1/devices/${this.id}` && request.method === "DELETE") {
-				const token = request.headers.get("authorization")?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
-				if (!token || !equalSecrets(credentialHash(token), record.credentialHash)) return errorResponse(401, "unauthorized", "Invalid credential");
-				this.revision++;
-				this.removing = true;
-				try {
-					await this.host.store.remove(this.id);
-				} catch (error) {
-					this.removing = false;
-					throw error;
-				}
-				this.shutdown(4001, "Device removed");
-				return new Response(null, { status: 204 });
-			}
-			if (url.pathname === `/v1/agent/${this.id}` && request.method === "GET") {
-				if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return errorResponse(426, "invalid", "WebSocket required");
-				if (this.agents.size >= 4) return errorResponse(429, "quota", "Too many pending connections");
-				return context.upgrade((socket) => this.accept(socket));
-			}
-			return errorResponse(404, "not_found", "Unknown route");
-		}
-		if (request.headers.get("upgrade")) return errorResponse(501, "unsupported", "Visitor WebSockets are not implemented");
-		const decision = await authorize(this.options, { kind: "visitor", deviceId: this.id, request });
-		if (!decision.allowed) return errorResponse(decision.status, decision.status === 429 ? "quota" : "forbidden", "Stream refused");
-		if (!this.current) return errorResponse(502, "offline", "Device is offline");
-		if (this.exchanges.size >= this.limits.maxStreams) {
-			return new Response("Too many streams", { status: 503, headers: { "retry-after": "1" } });
-		}
-		return this.open(request, context.address);
-	}
-
-	accept(socket: RelaySocket): AgentConnection {
-		const now = this.host.scheduler.now();
-		const agent: Agent = { socket, authenticated: false, closed: false, started: now, lastSeen: now, lastPing: now };
-		this.agents.add(agent);
-		this.schedule();
-		return this.connection(agent);
-	}
-
-	private connection(agent: Agent): AgentConnection {
-		let receiving = false;
-		return {
-			message: async (bytes) => {
-				if (agent.closed) return;
-				// Only hello performs asynchronous work. Frames before it completes are invalid.
-				if (receiving) {
-					this.close(agent, 4004, "Handshake in progress");
-					return;
-				}
-				receiving = true;
-				try {
-					const frame = decodeFrame(bytes, this.limits.maxFrame);
-					agent.lastSeen = this.host.scheduler.now();
-					if (!agent.authenticated) await this.hello(agent, frame);
-					else this.receive(agent, frame);
-				} catch {
-					this.close(agent, 4004, "Invalid frame");
-				} finally {
-					receiving = false;
-					this.schedule();
-				}
-			},
-			closed: () => this.disconnected(agent),
+	constructor(deviceId: string, host: SessionHost, options: RelayOptions) {
+		this.deviceId = deviceId;
+		this.host = host;
+		this.options = options;
+		this.limits = checkLimits({ ...DEFAULT_LIMITS, ...options.limits });
+		this.origin = new URL(options.origin);
+		this.link = {
+			limits: this.limits,
+			send: (type, stream, payload) => this.send(type, stream, payload),
+			now: () => this.host.clock.now(),
+			done: (stream) => this.streamDone(stream),
 		};
 	}
 
-	shutdown(code = 1012, reason = "Relay restarting"): void {
-		for (const agent of this.agents) this.close(agent, code, reason);
-		this.cancelTimer?.();
-		this.cancelTimer = undefined;
+	/** Rebuilds the session from the host's live sockets after the host woke it. */
+	resume(): void {
+		for (const socket of this.host.sockets.live()) {
+			const attachment = socket.attachment();
+			if (attachment?.authenticated === true && this.connector === undefined) {
+				this.connector = { socket, connectedAt: attachment.welcomedAt, heartbeatAt: attachment.welcomedAt };
+				this.nextStream = attachment.nextStream;
+			} else {
+				// A connection that had not authenticated cannot continue safely; its connector reconnects.
+				socket.close(CLOSE_CODE.HELLO_TIMEOUT, "Authenticate again");
+			}
+		}
 	}
 
-	private async hello(agent: Agent, frame: Frame): Promise<void> {
-		if (frame.type !== types.hello) throw new ProtocolError("Expected hello");
-		const hello = parseHello(frame.payload);
-		if (hello.version !== 1) {
-			this.close(agent, 4002, "Unsupported version");
-			return;
+	/** Answers a request for this device: its removal, its connector's upgrade, or a visitor's stream. */
+	async fetch(request: Request, context: RequestContext): Promise<Response | undefined> {
+		const record = await this.host.records.get();
+		if (record === undefined || this.removed) return errorResponse("not_found", "Unknown device");
+		const url = new URL(request.url);
+		if (url.host !== this.origin.host) return this.visit(request, context.address);
+		if (url.pathname === `/v1/devices/${this.deviceId}` && request.method === "DELETE") return this.remove(request, record.credentialHash);
+		if (url.pathname === `/v1/connect/${this.deviceId}` && request.method === "GET") return this.connect(request, context);
+		return errorResponse("not_found", "Unknown route");
+	}
+
+	/** A connector connection the host opened after `acceptConnector`; it has `HELLO_TIMEOUT` to authenticate. */
+	opened(socket: SessionSocket): void {
+		const cancelTimeout = this.host.clock.after(HELLO_TIMEOUT, () => this.close(socket, CLOSE_CODE.HELLO_TIMEOUT, "No hello in time"));
+		this.pending.set(socket, { cancelTimeout, authenticating: false });
+	}
+
+	/** Handles a message on one of the session's sockets. */
+	async message(socket: SessionSocket, data: Uint8Array | string): Promise<void> {
+		// Any message from the connector shows it is there, as a heartbeat does.
+		if (this.connector?.socket === socket) this.connector.heartbeatAt = this.host.clock.now();
+		if (typeof data === "string") return this.text(socket, data);
+		let frame: Frame;
+		try {
+			frame = decodeFrame(data, this.limits.maxFrame);
+		} catch {
+			return this.close(socket, CLOSE_CODE.MALFORMED, "Malformed frame");
+		}
+		const pending = this.pending.get(socket);
+		if (pending !== undefined) return this.authenticate(socket, pending, frame);
+		if (this.connector?.socket === socket) this.receive(frame);
+	}
+
+	/** One of the session's sockets closed. */
+	closed(socket: SessionSocket): void {
+		const pending = this.pending.get(socket);
+		if (pending !== undefined) {
+			pending.cancelTimeout();
+			this.pending.delete(socket);
+		}
+		if (this.connector?.socket !== socket) return;
+		const { connectedAt } = this.connector;
+		this.connector = undefined;
+		for (const stream of this.streams.values()) stream.fail(new Error("The connector disconnected"));
+		meter(this.options, { deviceId: this.deviceId, kind: "connection", bytesIn: 0, bytesOut: 0, duration: this.host.clock.now() - connectedAt });
+	}
+
+	/** Closes every connection, with 1012 unless told otherwise, so connectors reconnect. */
+	shutdown(code: number = CLOSE_CODE.RESTART, reason = "The relay is restarting"): void {
+		for (const socket of this.pending.keys()) this.close(socket, code, reason);
+		if (this.connector !== undefined) this.close(this.connector.socket, code, reason);
+	}
+
+	private async remove(request: Request, credentialHash: string): Promise<Response> {
+		const credential = request.headers.get("authorization")?.replace(/^Bearer /, "");
+		if (!isCredential(credential) || !sameSecret(hashCredential(credential), credentialHash)) {
+			return errorResponse("unauthorized", "Invalid credential");
+		}
+		this.removed = true;
+		this.revision++;
+		try {
+			await this.host.records.delete();
+		} catch (error) {
+			this.removed = false;
+			throw error;
+		}
+		this.shutdown(CLOSE_CODE.UNAUTHORIZED, "The device was removed");
+		return new Response(null, { status: 204 });
+	}
+
+	private connect(request: Request, context: RequestContext): Response | undefined {
+		if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return errorResponse("upgrade_required", "A connector connects with a WebSocket");
+		if (this.pending.size >= MAX_PENDING_CONNECTIONS) return errorResponse("quota", "Too many connections waiting to authenticate");
+		return context.acceptConnector();
+	}
+
+	private async visit(request: Request, address: string): Promise<Response> {
+		if (request.headers.get("upgrade") !== null) return errorResponse("not_implemented", "Visitor WebSockets are not supported yet");
+		const decision = await authorize(this.options, { kind: "visitor", deviceId: this.deviceId, request });
+		if (!decision.allowed) return refusal(decision, "Stream refused");
+		if (!this.connectorAlive()) return errorResponse("offline", "The device is offline");
+		if (this.streams.size >= this.limits.maxStreams) return errorResponse("busy", "Too many open streams", { "retry-after": "1" });
+		const stream = new HttpStream(this.takeStreamId(), request.method, this.link);
+		this.streams.set(stream.id, stream);
+		this.startSweep();
+		try {
+			stream.start(request, address, this.origin);
+		} catch {
+			stream.fail(new Error("The stream could not be opened"));
+		}
+		return stream.response;
+	}
+
+	/** Whether a connector is connected and has sent a heartbeat lately; closes it when its heartbeats stopped. */
+	private connectorAlive(): boolean {
+		const connector = this.connector;
+		if (connector === undefined) return false;
+		const answered = this.host.sockets.lastHeartbeat(connector.socket) ?? 0;
+		const lastHeartbeat = Math.max(connector.heartbeatAt, answered);
+		if (this.host.clock.now() - lastHeartbeat <= MISSED_HEARTBEATS * this.limits.heartbeat) return true;
+		this.close(connector.socket, CLOSE_CODE.INTERNAL_ERROR, "No heartbeat");
+		return false;
+	}
+
+	private takeStreamId(): number {
+		const id = this.nextStream++;
+		const connector = this.connector;
+		const attachment = connector?.socket.attachment();
+		if (connector !== undefined && attachment !== undefined) connector.socket.attach({ ...attachment, nextStream: this.nextStream });
+		return id;
+	}
+
+	private text(socket: SessionSocket, text: string): void {
+		const connector = this.connector;
+		if (text !== PING || connector?.socket !== socket) return this.close(socket, CLOSE_CODE.MALFORMED, "Unexpected text message");
+		socket.sendText(PONG);
+	}
+
+	private async authenticate(socket: SessionSocket, pending: Pending, frame: Frame): Promise<void> {
+		if (pending.authenticating || frame.type !== FRAME_TYPE.HELLO) return this.close(socket, CLOSE_CODE.MALFORMED, "Expected hello");
+		pending.authenticating = true;
+		let credential: string;
+		try {
+			const hello = decodeHello(frame.payload);
+			if (hello.version !== PROTOCOL_VERSION) return this.close(socket, CLOSE_CODE.UNSUPPORTED_VERSION, "Unsupported version");
+			credential = hello.credential;
+		} catch {
+			return this.close(socket, CLOSE_CODE.MALFORMED, "Malformed hello");
 		}
 		const revision = this.revision;
-		const record = await this.host.store.get(this.id);
-		if (this.removing || !record || !equalSecrets(credentialHash(hello.credential), record.credentialHash)) {
-			this.close(agent, 4001, "Invalid credential");
-			return;
+		const record = await this.host.records.get();
+		if (record === undefined || this.removed || !sameSecret(hashCredential(credential), record.credentialHash)) {
+			return this.close(socket, CLOSE_CODE.UNAUTHORIZED, "Invalid credential");
 		}
-		const decision = await authorize(this.options, { kind: "agent", deviceId: this.id });
-		if (!decision.allowed || this.removing || revision !== this.revision) {
-			this.close(agent, 4001, "Connection refused");
-			return;
+		const decision = await authorize(this.options, { kind: "connector", deviceId: this.deviceId });
+		if (!decision.allowed || revision !== this.revision || !this.pending.has(socket)) {
+			return this.close(socket, CLOSE_CODE.UNAUTHORIZED, "Connection refused");
 		}
-		if (agent.closed) return;
-		if (this.current) this.close(this.current, 4000, "Connection replaced");
-		this.current = agent;
-		agent.authenticated = true;
-		this.nextId = 1;
-		agent.socket.send(encodeFrame(types.welcome, 0, jsonBytes(this.limits)));
+		this.welcome(socket, pending);
 	}
 
-	private receive(agent: Agent, frame: Frame): void {
-		if (agent !== this.current) throw new ProtocolError("Inactive agent");
-		if (frame.type === types.ping) {
-			this.send(types.pong, 0, frame.payload);
-			return;
-		}
-		if (frame.type === types.pong) return;
-		if (!frame.stream) throw new ProtocolError("Unexpected connection frame");
-		const exchange = this.exchanges.get(frame.stream);
-		if (!exchange) {
-			if (frame.type !== types.reset) this.send(types.reset, frame.stream, jsonBytes({ code: "cancelled", reason: "Unknown stream" }));
-			return;
-		}
-		exchange.lastSeen = this.host.scheduler.now();
-		try {
-			switch (frame.type) {
-				case types.head: {
-					if (exchange.head) throw new ProtocolError("Duplicate head");
-					const { status, headers } = parseHead(frame.payload);
-					const noBody = exchange.method === "HEAD" || status === 204 || status === 205 || status === 304;
-					exchange.noBody = noBody;
-					const response = new Response(noBody ? null : exchange.body.stream, { status, headers: forwardedHeaders(new Headers(headers)) });
-					exchange.head = true;
-					exchange.resolve(response);
-					break;
-				}
-				case types.data:
-					if (!exchange.head || exchange.noBody) throw new ProtocolError("Unexpected body data");
-					exchange.body.push(frame.payload);
-					exchange.bytesOut += frame.payload.length;
-					break;
-				case types.end:
-					if (!exchange.head || frame.payload.length) throw new ProtocolError("Invalid end");
-					exchange.body.end();
-					exchange.responseEnded = true;
-					this.complete(exchange);
-					break;
-				case types.window:
-					exchange.window.grant(windowAmount(frame.payload));
-					break;
-				case types.reset:
-					validateReset(frame.payload);
-					if (exchange.responseEnded) {
-						const error = new Error("Agent stopped the request body");
-						exchange.window.fail(error);
-						exchange.abort.abort(error);
-						exchange.requestEnded = true;
-						this.complete(exchange);
-					} else this.fail(exchange, new Error("Agent reset the stream"));
-					break;
-				default:
-					throw new ProtocolError("Unexpected stream frame");
-			}
-		} catch {
-			this.reset(exchange, "protocol", "Invalid stream frame");
-		}
+	private welcome(socket: SessionSocket, pending: Pending): void {
+		pending.cancelTimeout();
+		this.pending.delete(socket);
+		if (this.connector !== undefined) this.close(this.connector.socket, CLOSE_CODE.REPLACED, "Replaced by a newer connection");
+		const now = this.host.clock.now();
+		this.connector = { socket, connectedAt: now, heartbeatAt: now };
+		this.nextStream = 1;
+		socket.attach({ role: "connector", authenticated: true, nextStream: 1, welcomedAt: now });
+		socket.send(encodeFrame(FRAME_TYPE.WELCOME, 0, encodeWelcome(this.limits)));
 	}
 
-	private open(request: Request, address: string): Promise<Response> {
-		if (this.nextId > 0xffff_ffff) {
-			this.shutdown();
-			return Promise.resolve(errorResponse(503, "offline", "Reconnecting"));
+	private receive(frame: Frame): void {
+		if (frame.type === FRAME_TYPE.HELLO || frame.type === FRAME_TYPE.WELCOME || frame.type === FRAME_TYPE.OPEN) {
+			const socket = this.connector?.socket;
+			if (socket !== undefined) this.close(socket, CLOSE_CODE.MALFORMED, "Unexpected frame");
+			return;
 		}
-		const id = this.nextId++;
-		const now = this.host.scheduler.now();
-		return new Promise<Response>((resolve) => {
-			const exchange: Exchange = {
-				id,
-				method: request.method,
-				window: new SendWindow(this.limits.initialWindow),
-				abort: new AbortController(),
-				body: new ReceiveBody(
-					this.limits.initialWindow,
-					(size) => {
-						if (this.exchanges.has(id)) this.send(types.window, id, windowBytes(size));
-					},
-					() => this.reset(exchange, "cancelled", "Response cancelled"),
-					() => {
-						exchange.responseConsumed = true;
-						this.complete(exchange);
-					},
-				),
-				resolve,
-				head: false,
-				requestEnded: false,
-				responseEnded: false,
-				responseConsumed: false,
-				noBody: false,
-				started: now,
-				lastSeen: now,
-				bytesIn: 0,
-				bytesOut: 0,
-				unlisten: () => request.signal.removeEventListener("abort", aborted),
-			};
-			const aborted = () => this.reset(exchange, "cancelled", "Request cancelled");
-			this.exchanges.set(id, exchange);
-			this.schedule();
-			request.signal.addEventListener("abort", aborted, { once: true });
-			if (request.signal.aborted) {
-				aborted();
-				return;
-			}
-			const url = new URL(request.url);
-			const headers = forwardedHeaders(request.headers);
-			headers.push(["x-forwarded-for", address], ["x-forwarded-proto", new URL(this.options.origin).protocol.slice(0, -1)], ["x-forwarded-host", url.host]);
-			try {
-				this.send(types.open, id, jsonBytes({ kind: "http", method: request.method, path: url.pathname + url.search, headers, remote: { address } }));
-			} catch {
-				this.fail(exchange, new Error("Request headers too large"));
-				return;
-			}
-			void sendBody(
-				request.body,
-				exchange.window,
-				this.limits.maxFrame,
-				(bytes) => {
-					this.send(types.data, id, bytes);
-					exchange.bytesIn += bytes.length;
-					exchange.lastSeen = this.host.scheduler.now();
-				},
-				exchange.abort.signal,
-			)
-				.then(() => {
-					if (!this.exchanges.has(id)) return;
-					this.send(types.end, id);
-					exchange.requestEnded = true;
-					this.complete(exchange);
-				})
-				.catch(() => {
-					if (this.exchanges.has(id) && !exchange.requestEnded) this.reset(exchange, "internal", "Request failed");
-				});
-		});
+		const stream = this.streams.get(frame.stream);
+		if (stream !== undefined) return stream.receive(frame);
+		if (frame.type !== FRAME_TYPE.RESET) this.send(FRAME_TYPE.RESET, frame.stream, encodeReset({ code: "cancelled", reason: "Unknown stream" }));
 	}
 
 	private send(type: FrameType, stream: number, payload?: Uint8Array): void {
-		const agent = this.current;
-		if (!agent) throw new Error("Agent disconnected");
-		if (payload && payload.length > this.limits.maxFrame) throw new ProtocolError("Frame too large");
-		const frame = encodeFrame(type, stream, payload);
-		try {
-			agent.socket.send(frame);
-		} catch (error) {
-			this.close(agent, 1011, "Send failed");
-			throw error;
+		const connector = this.connector;
+		if (connector === undefined) throw new Error("The connector disconnected");
+		if (payload !== undefined && payload.length > this.limits.maxFrame) throw new ProtocolError("Frame too large");
+		if (connector.socket.bufferedAmount() > this.limits.maxStreams * this.limits.initialCredit + SOCKET_BUFFER_SLACK) {
+			this.close(connector.socket, CLOSE_CODE.INTERNAL_ERROR, "Send buffer full");
+			throw new Error("The connector's send buffer is full");
 		}
+		connector.socket.send(encodeFrame(type, stream, payload));
 	}
-	private reset(exchange: Exchange, code: string, reason: string): void {
-		if (!this.exchanges.has(exchange.id)) return;
-		try {
-			this.send(types.reset, exchange.id, jsonBytes({ code, reason }));
-		} catch {
-			/* Connection cleanup already fails its streams. */
-		}
-		this.fail(exchange, new Error(reason));
-	}
-	private fail(exchange: Exchange, error: Error): void {
-		if (!this.exchanges.has(exchange.id)) return;
-		exchange.body.fail(error);
-		exchange.window.fail(error);
-		exchange.abort.abort(error);
-		if (!exchange.head) exchange.resolve(errorResponse(502, "stream_failed", error.message));
-		this.remove(exchange);
-	}
-	private complete(exchange: Exchange): void {
-		if (exchange.requestEnded && exchange.responseEnded && exchange.responseConsumed) this.remove(exchange);
-	}
-	private remove(exchange: Exchange): void {
-		if (!this.exchanges.delete(exchange.id)) return;
-		exchange.unlisten();
-		recordMeter(this.options, {
-			deviceId: this.id,
+
+	private streamDone(stream: HttpStream): void {
+		if (!this.streams.delete(stream.id)) return;
+		meter(this.options, {
+			deviceId: this.deviceId,
 			kind: "http",
-			bytesIn: exchange.bytesIn,
-			bytesOut: exchange.bytesOut,
-			duration: this.host.scheduler.now() - exchange.started,
+			bytesIn: stream.bytesIn,
+			bytesOut: stream.bytesOut,
+			duration: this.host.clock.now() - stream.startedAt,
+		});
+		if (this.streams.size === 0) this.stopSweeping();
+	}
+
+	/** Checks for idle streams every quarter of `streamIdle` while any stream is open. */
+	private startSweep(): void {
+		if (this.stopSweep !== undefined) return;
+		this.stopSweep = this.host.clock.after(this.limits.streamIdle / 4, () => {
+			this.stopSweep = undefined;
+			const now = this.host.clock.now();
+			for (const stream of this.streams.values()) if (stream.idleAt(now, this.limits.streamIdle)) stream.reset("idle", "The stream was idle");
+			if (this.streams.size > 0) this.startSweep();
 		});
 	}
-	private close(agent: Agent, code: number, reason: string): void {
-		if (agent.closed) return;
-		this.disconnected(agent);
+
+	private stopSweeping(): void {
+		this.stopSweep?.();
+		this.stopSweep = undefined;
+	}
+
+	private close(socket: SessionSocket, code: number, reason: string): void {
 		try {
-			agent.socket.close(code, reason);
+			socket.close(code, reason);
 		} catch {
-			/* Already closed by the host. */
+			// The host closed it already.
 		}
-	}
-	private disconnected(agent: Agent): void {
-		if (agent.closed) return;
-		agent.closed = true;
-		this.agents.delete(agent);
-		if (this.current === agent) {
-			this.current = undefined;
-			for (const exchange of this.exchanges.values()) this.fail(exchange, new Error("Agent disconnected"));
-		}
-		recordMeter(this.options, { deviceId: this.id, kind: "connection", bytesIn: 0, bytesOut: 0, duration: this.host.scheduler.now() - agent.started });
-		if (!this.agents.size) {
-			this.cancelTimer?.();
-			this.cancelTimer = undefined;
-		}
-	}
-	private schedule(): void {
-		this.cancelTimer?.();
-		this.cancelTimer = undefined;
-		if (!this.agents.size) return;
-		let deadline = Number.POSITIVE_INFINITY;
-		for (const agent of this.agents) {
-			deadline = Math.min(
-				deadline,
-				agent.authenticated ? Math.min(agent.lastPing + this.limits.pingInterval, agent.lastSeen + this.limits.pingInterval * 3) : agent.started + 10_000,
-			);
-		}
-		for (const exchange of this.exchanges.values()) deadline = Math.min(deadline, exchange.lastSeen + this.limits.streamIdle);
-		this.cancelTimer = this.host.scheduler.schedule(deadline, () => {
-			this.cancelTimer = undefined;
-			const now = this.host.scheduler.now();
-			for (const agent of this.agents) {
-				if (!agent.authenticated) {
-					if (now - agent.started >= 10_000) this.close(agent, 4003, "Hello timeout");
-					continue;
-				}
-				if (now - agent.lastSeen >= this.limits.pingInterval * 3) {
-					this.close(agent, 1011, "Heartbeat timeout");
-					continue;
-				}
-				if (now - agent.lastPing >= this.limits.pingInterval) {
-					agent.lastPing = now;
-					try {
-						this.send(types.ping, 0, new Uint8Array(8));
-					} catch {
-						/* Send failure closes the connection. */
-					}
-				}
-			}
-			for (const exchange of this.exchanges.values()) {
-				if (now - exchange.lastSeen >= this.limits.streamIdle) this.reset(exchange, "idle", "Stream idle");
-			}
-			if (this.agents.size) this.schedule();
-		});
+		this.closed(socket);
 	}
 }

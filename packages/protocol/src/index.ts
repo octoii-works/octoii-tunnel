@@ -47,7 +47,7 @@ export {
 	sameSecret,
 } from "./formats.ts";
 export { decodeFrame, encodeFrame, type Frame, FRAME_HEADER_SIZE, FRAME_TYPE, type FrameType, isFrameType, MAX_FRAME_SIZE, PROTOCOL_VERSION } from "./frame.ts";
-export { decodeHeaderList, forwardableHeaders, type HeaderList, isHeaderName, MAX_HEADERS } from "./headers.ts";
+export { decodeHeaderList, forwardableHeaders, type HeaderList, isHeaderName, MAX_HEADERS, toHeaders } from "./headers.ts";
 export { decodeJsonObject, encodeJson, isIntegerBetween, isJsonObject, isStringUpTo, type JsonObject } from "./json.ts";
 export { checkLimits, DEFAULT_LIMITS, LIMIT_RANGES, type Limits, MAX_MESSAGE_SIZE } from "./limits.ts";
 export { type Message, MessageAssembler, splitMessage } from "./messages.ts";

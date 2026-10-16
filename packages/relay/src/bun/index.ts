@@ -1,98 +1,162 @@
-import type { Server, WebSocketHandler } from "bun";
-import { MAX_BUFFER, MAX_FRAME } from "@klein-works/takotunnel/protocol";
-import { createRelay, DeviceSession, type AgentConnection, type DeviceStore, type RelayOptions, type RelaySocket, type Scheduler } from "../index.ts";
-import { errorResponse } from "../host.ts";
+/**
+ * The relay in one Bun process: sessions in memory, device records in SQLite, sockets from `Bun.serve`. For
+ * development, tests, and a relay on a single machine.
+ */
+import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
+import { FRAME_HEADER_SIZE, MAX_FRAME_SIZE } from "@klein-works/takotunnel-protocol";
+import { errorResponse } from "../hooks.ts";
+import type { Clock, RelayHost, RelayOptions, SessionSocket, SocketAttachment } from "../host.ts";
+import { createRelay } from "../router.ts";
+import { DeviceSession } from "../session.ts";
+import { SqliteDevices } from "./devices.ts";
 
-export interface SocketData {
-	accept: (socket: RelaySocket) => AgentConnection;
-	connection?: AgentConnection;
-}
-export interface BunRelayOptions extends RelayOptions {
-	store: DeviceStore;
+/** How a Bun relay is configured. */
+export type BunRelayOptions = RelayOptions & {
+	/** The SQLite file for device records, or `":memory:"` to keep them only while the process runs. */
+	readonly database: string;
+};
+
+/** What Bun keeps on each WebSocket. */
+type SocketData = { readonly deviceId: string; socket?: BunSessionSocket };
+
+/** A session and its open sockets. */
+type Entry = { readonly session: DeviceSession; readonly sockets: Set<BunSessionSocket> };
+
+const CLOCK: Clock = {
+	now: () => Date.now(),
+	after: (delay, callback) => {
+		const timer = setTimeout(callback, delay);
+		return () => clearTimeout(timer);
+	},
+};
+
+/** A Bun WebSocket as a session uses it. */
+class BunSessionSocket implements SessionSocket {
+	private readonly socket: ServerWebSocket<SocketData>;
+	private kept: SocketAttachment | undefined;
+
+	constructor(socket: ServerWebSocket<SocketData>) {
+		this.socket = socket;
+	}
+
+	send(bytes: Uint8Array): void {
+		if (this.socket.send(bytes) === 0) throw new Error("The socket is closed");
+	}
+
+	sendText(text: string): void {
+		this.socket.send(text);
+	}
+
+	close(code: number, reason: string): void {
+		this.socket.close(code, reason);
+	}
+
+	bufferedAmount(): number {
+		return this.socket.getBufferedAmount();
+	}
+
+	attachment(): SocketAttachment | undefined {
+		return this.kept;
+	}
+
+	attach(attachment: SocketAttachment): void {
+		this.kept = attachment;
+	}
 }
 
+/** The relay as a Bun `fetch` handler and `websocket` handler, for an application's own `Bun.serve`. */
 export function createBunRelay(options: BunRelayOptions) {
-	const store = options.store;
-	const router = createRelay(options);
-	const sessions = new Map<string, DeviceSession>();
-	const scheduler: Scheduler = {
-		now: () => Date.now(),
-		schedule: (deadline, callback) => {
-			const timer = setTimeout(callback, Math.max(0, deadline - Date.now()));
-			return () => clearTimeout(timer);
-		},
+	const relay = createRelay(options);
+	const devices = new SqliteDevices(options.database);
+	const entries = new Map<string, Entry>();
+
+	const entryOf = (deviceId: string): Entry => {
+		const existing = entries.get(deviceId);
+		if (existing !== undefined) return existing;
+		const sockets = new Set<BunSessionSocket>();
+		const host = {
+			records: { get: async () => devices.get(deviceId), delete: async () => devices.delete(deviceId) },
+			sockets: { live: () => [...sockets], lastHeartbeat: () => undefined },
+			clock: CLOCK,
+		};
+		const entry = { session: new DeviceSession(deviceId, host, options), sockets };
+		entries.set(deviceId, entry);
+		return entry;
 	};
+
 	const websocket: WebSocketHandler<SocketData> = {
-		maxPayloadLength: MAX_FRAME + 10,
-		backpressureLimit: MAX_BUFFER,
-		closeOnBackpressureLimit: true,
+		maxPayloadLength: FRAME_HEADER_SIZE + MAX_FRAME_SIZE,
+		perMessageDeflate: false,
 		open(socket) {
-			socket.data.connection = socket.data.accept({
-				send(bytes) {
-					if (socket.send(bytes) === 0) throw new Error("Socket closed");
-				},
-				close(code, reason) {
-					socket.close(code, reason);
-				},
-			});
+			const wrapped = new BunSessionSocket(socket);
+			socket.data.socket = wrapped;
+			const entry = entryOf(socket.data.deviceId);
+			entry.sockets.add(wrapped);
+			entry.session.opened(wrapped);
 		},
 		message(socket, message) {
-			if (typeof message === "string") {
-				socket.close(4004, "Binary frames required");
-				return;
-			}
-			void socket.data.connection?.message(new Uint8Array(message)).catch(() => socket.close(4004, "Invalid frame"));
+			const wrapped = socket.data.socket;
+			if (wrapped === undefined) return;
+			const data = typeof message === "string" ? message : new Uint8Array(message);
+			void entryOf(socket.data.deviceId).session.message(wrapped, data);
 		},
 		close(socket) {
-			socket.data.connection?.closed();
+			const wrapped = socket.data.socket;
+			const entry = entries.get(socket.data.deviceId);
+			if (wrapped === undefined || entry === undefined) return;
+			entry.sockets.delete(wrapped);
+			entry.session.closed(wrapped);
 		},
 	};
+
+	const hostFor = (server: Server<SocketData>, original: Request): RelayHost => ({
+		createDevice: async (record) => devices.create(record),
+		forward: async (deviceId, request) => {
+			if (devices.get(deviceId) === undefined) return errorResponse("not_found", "Unknown device");
+			const entry = entryOf(deviceId);
+			const response = await entry.session.fetch(request, {
+				address: server.requestIP(original)?.address ?? "",
+				acceptConnector: () => (server.upgrade(original, { data: { deviceId } }) ? undefined : errorResponse("invalid", "The upgrade failed")),
+			});
+			if (devices.get(deviceId) === undefined && entry.sockets.size === 0) entries.delete(deviceId);
+			return response;
+		},
+	});
+
 	return {
 		websocket,
+		/** Answers a request; `undefined` when it was upgraded to a WebSocket. */
 		async fetch(request: Request, server: Server<SocketData>): Promise<Response | undefined> {
 			try {
-				return await router.fetch(request, {
-					create: (record) => store.create(record),
-					dispatch: async (id, incoming) => {
-						if (!(await store.get(id))) return errorResponse(404, "not_found", "Unknown device");
-						let session = sessions.get(id);
-						if (!session) {
-							session = new DeviceSession(id, { store, scheduler }, options);
-							sessions.set(id, session);
-						}
-						const response = await session.fetch(incoming, {
-							address: server.requestIP(request)?.address ?? "",
-							upgrade: (accept) => (server.upgrade(request, { data: { accept } }) ? undefined : errorResponse(400, "invalid", "Upgrade failed")),
-						});
-						if (response?.status === 204 && incoming.method === "DELETE") sessions.delete(id);
-						return response;
-					},
-				});
+				return await relay.handle(request, hostFor(server, request));
 			} catch {
-				return errorResponse(500, "internal", "Relay request failed");
+				return errorResponse("internal", "The relay failed");
 			}
 		},
-		close() {
-			for (const session of sessions.values()) session.shutdown();
-			sessions.clear();
+		/** Closes every session's connections with 1012, so connectors reconnect, and the database. */
+		close(): void {
+			for (const { session } of entries.values()) session.shutdown();
+			entries.clear();
+			devices.close();
 		},
 	};
 }
 
-export function serveRelay(options: BunRelayOptions & { port?: number; hostname?: string }) {
-	const adapter = createBunRelay(options);
+/** A relay serving on its own `Bun.serve`, by default on `127.0.0.1:8787`. */
+export function serveRelay(options: BunRelayOptions & { readonly port?: number; readonly hostname?: string }) {
+	const relay = createBunRelay(options);
 	const server = Bun.serve<SocketData>({
 		port: options.port ?? 8787,
 		hostname: options.hostname ?? "127.0.0.1",
-		fetch: adapter.fetch,
-		websocket: adapter.websocket,
+		fetch: relay.fetch,
+		websocket: relay.websocket,
 		idleTimeout: 0,
-		error: () => errorResponse(500, "internal", "Relay request failed"),
+		error: () => errorResponse("internal", "The relay failed"),
 	});
 	return {
 		server,
-		async close() {
-			adapter.close();
+		async close(): Promise<void> {
+			relay.close();
 			await server.stop(true);
 		},
 	};

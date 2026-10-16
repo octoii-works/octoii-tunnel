@@ -28,8 +28,9 @@ function strings(value: unknown): Record<string, string> {
 
 export async function manifest(name: string) {
 	const raw: unknown = await Bun.file(join(ROOT, "packages", name, "package.json")).json();
-	if (!record(raw) || typeof raw.name !== "string" || typeof raw.version !== "string" || raw.license !== "MIT") throw new Error("Invalid package manifest");
-	return { raw, name: raw.name, version: raw.version, exports: strings(raw.exports), dependencies: strings(raw.dependencies ?? {}) };
+	if (!record(raw) || typeof raw["name"] !== "string" || typeof raw["version"] !== "string" || raw["license"] !== "MIT")
+		throw new Error("Invalid package manifest");
+	return { raw, name: raw["name"], version: raw["version"], exports: strings(raw["exports"]), dependencies: strings(raw["dependencies"] ?? {}) };
 }
 
 export async function pack(destination: string): Promise<Record<string, string>> {
@@ -68,7 +69,7 @@ export async function pack(destination: string): Promise<Record<string, string>>
 						private: true,
 						type: "module",
 						license: "MIT",
-						description: pkg.raw.description,
+						description: pkg.raw["description"],
 						exports,
 						dependencies,
 						files: ["dist", "LICENSE", "README.md", "CHANGELOG.md"],

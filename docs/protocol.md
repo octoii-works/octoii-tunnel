@@ -122,7 +122,7 @@ by the connector library itself.
 | `heartbeat` | 25000 | 5000–120000 |
 | `streamIdle` | 300000 | 10000–3600000 |
 
-A stream with no frame for `streamIdle` is reset with `idle`. More than `maxStreams` open streams: the relay answers the
+An HTTP stream with no frame for `streamIdle` is reset with `idle`. A WebSocket stream has no idle limit: a visitor may keep one open, quiet, for as long as the connector connection lasts. More than `maxStreams` open streams: the relay answers the
 visitor 503 with `retry-after` instead of opening another.
 
 ### Headers

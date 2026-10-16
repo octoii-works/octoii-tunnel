@@ -5,8 +5,7 @@
   "type": "module",
   "license": "MIT",
   "exports": {
-    ".": "./src/index.ts",
-    "./protocol": "./src/protocol/index.ts"
+    ".": "./src/index.ts"
   },
   "files": [
     "dist",
@@ -15,8 +14,7 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@noble/hashes": "2.4.0",
-    "@noble/ciphers": "2.4.0"
+    "@klein-works/takotunnel-protocol": "workspace:*"
   },
-  "description": "Portable tunnel client and shared protocol"
+  "description": "The takotunnel client: a device's connector, and a visitor's pairing and secure channels"
 }

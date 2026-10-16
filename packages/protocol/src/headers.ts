@@ -44,3 +44,10 @@ export function forwardableHeaders(headers: Iterable<readonly [string, string]>)
 	);
 	return pairs.filter(([name]) => !HOP_BY_HOP.has(name) && !named.has(name) && !DROPPED_PREFIXES.some((prefix) => name.startsWith(prefix)));
 }
+
+/** A `Headers` with the list's pairs, repeats appended rather than replaced. */
+export function toHeaders(list: HeaderList): Headers {
+	const headers = new Headers();
+	for (const [name, field] of list) headers.append(name, field);
+	return headers;
+}

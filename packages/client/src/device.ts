@@ -1,54 +1,42 @@
-import { isObject, validDeviceId } from "./protocol/index.ts";
+/** Registering a device with a relay, and removing it. */
+import {
+	decodeRegistration,
+	devicePath,
+	isCredential,
+	isDeviceId,
+	parseRelayOrigin,
+	REGISTRATION_PATH,
+	type Registration,
+} from "@klein-works/takotunnel-protocol";
 
-export interface Device {
-	deviceId: string;
-	credential: string;
-	address: string;
-}
+/** A registered device: its id, its credential and its address. Keep it secret, as the credential is only shown once. */
+export type Device = Registration;
 
-export function relayOrigin(value: string): URL {
-	const url = new URL(value);
-	if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
-		throw new Error("Expected a relay origin");
-	}
-	return url;
-}
-
-export async function registerDevice(options: { relay: string; token: string; name?: string }): Promise<Device> {
-	const response = await fetch(new URL("/v1/devices", relayOrigin(options.relay)), {
+/** Registers a new device with the relay at `relay`, presenting its registration `token`. */
+export async function registerDevice(options: { readonly relay: string; readonly token: string; readonly name?: string }): Promise<Device> {
+	const relay = parseRelayOrigin(options.relay);
+	const response = await fetch(relay.origin + REGISTRATION_PATH, {
 		method: "POST",
 		headers: { authorization: `Bearer ${options.token}`, "content-type": "application/json" },
-		body: JSON.stringify({ name: options.name }),
+		body: JSON.stringify(options.name === undefined ? {} : { name: options.name }),
 		redirect: "error",
 	});
-	if (!response.ok) {
+	if (response.status !== 201) {
 		await response.body?.cancel();
-		throw new Error(`Registration failed (${response.status})`);
+		throw new Error(`Registration failed with status ${response.status}`);
 	}
-	const value: unknown = await response.json();
-	if (
-		!isObject(value) ||
-		typeof value.deviceId !== "string" ||
-		!validDeviceId(value.deviceId) ||
-		typeof value.credential !== "string" ||
-		!/^[A-Za-z0-9_-]{43}$/.test(value.credential) ||
-		typeof value.address !== "string"
-	) {
-		throw new Error("Invalid device response");
-	}
-	const expected = relayOrigin(options.relay);
-	expected.hostname = `${value.deviceId}.${expected.hostname}`;
-	if (value.address !== expected.origin) throw new Error("Unexpected device address");
-	return { deviceId: value.deviceId, credential: value.credential, address: value.address };
+	return decodeRegistration(await response.json(), relay);
 }
 
-export async function removeDevice(options: { relay: string; device: Device }): Promise<void> {
-	if (!validDeviceId(options.device.deviceId)) throw new Error("Invalid device id");
-	const response = await fetch(new URL(`/v1/devices/${options.device.deviceId}`, relayOrigin(options.relay)), {
+/** Removes the device from the relay: its record goes, and its connector is disconnected for good. */
+export async function removeDevice(options: { readonly relay: string; readonly device: Device }): Promise<void> {
+	const { deviceId, credential } = options.device;
+	if (!isDeviceId(deviceId) || !isCredential(credential)) throw new Error("Not a device");
+	const response = await fetch(parseRelayOrigin(options.relay).origin + devicePath(deviceId), {
 		method: "DELETE",
-		headers: { authorization: `Bearer ${options.device.credential}` },
+		headers: { authorization: `Bearer ${credential}` },
 		redirect: "error",
 	});
 	await response.body?.cancel();
-	if (response.status !== 204) throw new Error(`Removal failed (${response.status})`);
+	if (response.status !== 204) throw new Error(`Removal failed with status ${response.status}`);
 }

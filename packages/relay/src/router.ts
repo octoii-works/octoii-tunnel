@@ -1,72 +1,117 @@
-import { credentialHash, equalSecrets, parseObject, randomCredential, randomDeviceId, validDeviceId } from "@klein-works/takotunnel/protocol";
-import { authorize, errorResponse, type RelayDirectory, type RelayOptions } from "./host.ts";
+/** The relay's router: registration on the base domain, and every other request handed to its device's session. */
+import {
+	decodeUtf8,
+	deviceAddress,
+	hashCredential,
+	isDeviceId,
+	isJsonObject,
+	isStringUpTo,
+	matchDevicePath,
+	MAX_DEVICE_NAME_LENGTH,
+	MAX_REGISTRATION_BYTES,
+	newCredential,
+	newDeviceId,
+	parseRelayOrigin,
+	type RelayOrigin,
+	REGISTRATION_PATH,
+	type Registration,
+	sameSecret,
+} from "@klein-works/takotunnel-protocol";
+import { authorize, errorResponse, refusal } from "./hooks.ts";
+import type { RelayHost, RelayOptions } from "./host.ts";
 
-export function createRelay(options: RelayOptions) {
-	const origin = new URL(options.origin);
-	if (!["http:", "https:"].includes(origin.protocol) || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash)
-		throw new Error("Expected a relay origin");
-	if (!options.registrationToken) throw new Error("A registration token is required");
-	return {
-		async fetch(request: Request, directory: RelayDirectory): Promise<Response | undefined> {
-			const url = new URL(request.url);
-			if (url.host === origin.host) {
-				if (url.pathname === "/v1/devices" && request.method === "POST") return register(request, options, directory);
-				const match = /^\/v1\/(agent|devices)\/([a-z2-7]{26})$/.exec(url.pathname);
-				if (match?.[2]) return directory.dispatch(match[2], request);
-			} else {
-				const suffix = `.${origin.hostname}`;
-				if (url.port === origin.port && url.hostname.endsWith(suffix)) {
-					const id = url.hostname.slice(0, -suffix.length);
-					if (validDeviceId(id)) return directory.dispatch(id, request);
-				}
-			}
-			return errorResponse(404, "not_found", "Unknown route");
-		},
-	};
+/** How many fresh ids registration tries before it gives up on a collision. */
+const REGISTRATION_ATTEMPTS = 3;
+
+/** A relay's router. */
+export type Relay = {
+	/** The relay's checked configuration. */
+	readonly options: RelayOptions;
+	/** Answers `request`, handing device requests to `host`; `undefined` when the host upgraded it. */
+	handle(request: Request, host: RelayHost): Promise<Response | undefined>;
+};
+
+/** A relay's router, with its configuration checked. */
+export function createRelay(options: RelayOptions): Relay {
+	const origin = parseRelayOrigin(options.origin);
+	if (options.registrationToken === "") throw new Error("A relay needs a registration token");
+	return { options, handle: (request, host) => route(request, host, origin, options) };
 }
 
-async function register(request: Request, options: RelayOptions, directory: RelayDirectory): Promise<Response> {
-	const token = request.headers.get("authorization") ?? "";
-	if (!equalSecrets(token, `Bearer ${options.registrationToken}`)) return errorResponse(401, "unauthorized", "Invalid registration token");
+async function route(request: Request, host: RelayHost, origin: RelayOrigin, options: RelayOptions): Promise<Response | undefined> {
+	const url = new URL(request.url);
+	if (url.host === origin.host) {
+		if (url.pathname === REGISTRATION_PATH && request.method === "POST") return register(request, host, origin, options);
+		const match = matchDevicePath(url.pathname);
+		if (match !== undefined) return host.forward(match.deviceId, request);
+		return errorResponse("not_found", "Unknown route");
+	}
+	const deviceId = deviceIdOf(url.host, origin);
+	return deviceId === undefined ? errorResponse("not_found", "Unknown route") : host.forward(deviceId, request);
+}
+
+/** The device a visitor's host names: `<device id>.<relay host>`. */
+function deviceIdOf(host: string, origin: RelayOrigin): string | undefined {
+	const suffix = `.${origin.host}`;
+	if (!host.endsWith(suffix)) return undefined;
+	const deviceId = host.slice(0, -suffix.length);
+	return isDeviceId(deviceId) ? deviceId : undefined;
+}
+
+async function register(request: Request, host: RelayHost, origin: RelayOrigin, options: RelayOptions): Promise<Response> {
+	if (!sameSecret(request.headers.get("authorization") ?? "", `Bearer ${options.registrationToken}`)) {
+		return errorResponse("unauthorized", "Invalid registration token");
+	}
 	const decision = await authorize(options, { kind: "register", request });
-	if (!decision.allowed) return errorResponse(decision.status, decision.status === 429 ? "quota" : "forbidden", "Registration refused");
-	let name = "";
-	try {
-		const bytes = await readSmallBody(request);
-		const payload = bytes.length ? parseObject(bytes) : {};
-		if (payload.name !== undefined && (typeof payload.name !== "string" || payload.name.length > 128)) {
-			return errorResponse(400, "invalid", "Invalid device name");
-		}
-		name = typeof payload.name === "string" ? payload.name : "";
-	} catch {
-		return errorResponse(400, "invalid", "Invalid registration body");
+	if (!decision.allowed) return refusal(decision, "Registration refused");
+	const name = await registrationName(request);
+	if (name === undefined) return errorResponse("invalid", "A registration body is at most 4096 bytes of { name? }");
+	for (let attempt = 0; attempt < REGISTRATION_ATTEMPTS; attempt++) {
+		const deviceId = newDeviceId();
+		const credential = newCredential();
+		if (!(await host.createDevice({ id: deviceId, name, credentialHash: hashCredential(credential) }))) continue;
+		const registration: Registration = { deviceId, credential, address: deviceAddress(origin, deviceId) };
+		return Response.json(registration, { status: 201 });
 	}
-	for (let attempt = 0; attempt < 3; attempt++) {
-		const id = randomDeviceId();
-		const credential = randomCredential();
-		if (!(await directory.create({ id, name, credentialHash: credentialHash(credential) }))) continue;
-		const address = new URL(options.origin);
-		address.hostname = `${id}.${address.hostname}`;
-		return Response.json({ deviceId: id, credential, address: address.origin }, { status: 201 });
-	}
-	return errorResponse(503, "internal", "Registration unavailable");
+	return errorResponse("internal", "Registration unavailable");
 }
 
-async function readSmallBody(request: Request): Promise<Uint8Array> {
-	const reader = request.body?.getReader();
-	if (!reader) return new Uint8Array();
-	const buffer = new Uint8Array(4096);
-	let length = 0;
+/** The name in a registration body (empty when there is none), or `undefined` when the body is invalid. */
+async function registrationName(request: Request): Promise<string | undefined> {
+	const text = await readText(request, MAX_REGISTRATION_BYTES);
+	if (text === undefined) return undefined;
+	if (text === "") return "";
+	let body: unknown;
 	try {
-		while (true) {
-			const { value, done } = await reader.read();
-			if (done) return buffer.subarray(0, length);
-			if (length + value.length > buffer.length) throw new Error("Registration too large");
-			buffer.set(value, length);
-			length += value.length;
+		body = JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+	if (!isJsonObject(body)) return undefined;
+	const name = body["name"];
+	if (name === undefined) return "";
+	return isStringUpTo(name, MAX_DEVICE_NAME_LENGTH) ? name : undefined;
+}
+
+/** The request's body as UTF-8 text, or `undefined` when it is longer than `limit` bytes or not UTF-8. */
+async function readText(request: Request, limit: number): Promise<string | undefined> {
+	const reader = request.body?.getReader();
+	if (reader === undefined) return "";
+	const bytes = new Uint8Array(limit);
+	let size = 0;
+	try {
+		for (let read = await reader.read(); !read.done; read = await reader.read()) {
+			if (size + read.value.length > limit) return undefined;
+			bytes.set(read.value, size);
+			size += read.value.length;
 		}
 	} finally {
-		await reader.cancel().catch(() => {});
+		await reader.cancel().catch(() => undefined);
 		reader.releaseLock();
+	}
+	try {
+		return decodeUtf8(bytes.subarray(0, size));
+	} catch {
+		return undefined;
 	}
 }

@@ -15,8 +15,7 @@
       "name": "@klein-works/takotunnel",
       "version": "0.0.0",
       "dependencies": {
-        "@noble/ciphers": "2.4.0",
-        "@noble/hashes": "2.4.0",
+        "@klein-works/takotunnel-protocol": "workspace:*",
       },
     },
     "packages/protocol": {
@@ -30,6 +29,9 @@
       "name": "@klein-works/takotunnel-relay",
       "version": "0.0.0",
       "dependencies": {
+        "@klein-works/takotunnel-protocol": "workspace:*",
+      },
+      "devDependencies": {
         "@klein-works/takotunnel": "workspace:*",
       },
     },
@@ -40,8 +42,6 @@
     "@klein-works/takotunnel-protocol": ["@klein-works/takotunnel-protocol@workspace:packages/protocol"],
 
     "@klein-works/takotunnel-relay": ["@klein-works/takotunnel-relay@workspace:packages/relay"],
-
-    "@noble/ciphers": ["@noble/ciphers@2.4.0", "", {}, "sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw=="],
 
     "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 

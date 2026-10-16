@@ -15,7 +15,10 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@klein-works/takotunnel": "workspace:*"
+    "@klein-works/takotunnel-protocol": "workspace:*"
   },
-  "description": "Portable tunnel relay with injectable host capabilities"
+  "description": "The takotunnel relay: its core, and hosts for the Workers and Durable Object APIs and for one Bun process",
+  "devDependencies": {
+    "@klein-works/takotunnel": "workspace:*"
+  }
 }
