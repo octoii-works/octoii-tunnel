@@ -1,0 +1,72 @@
+name: Publish
+run-name: "release ${{ inputs.version }}"
+
+# Releases the three packages at one version under a dist-tag, protocol first, then pushes the release commit and
+# tag. npm trusts this workflow (trusted publishing): no npm token is stored, and npm adds provenance once the
+# repository is public.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version, such as 0.1.0 or the preview 0.1.0-preview.1"
+        type: string
+        required: true
+      tag:
+        description: "The dist-tag: next for previews, latest for releases"
+        type: choice
+        options: [next, latest]
+        default: next
+
+concurrency: publish
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-bun
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Use an npm that publishes through trusted publishing
+        run: npm install -g npm@11.6.2
+
+      - name: Configure the git committer
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Set the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bun scripts/version.ts "$VERSION"
+
+      - run: bun run check
+      - run: bun run pack
+
+      - name: Publish to npm
+        env:
+          VERSION: ${{ inputs.version }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          for name in octoii-tunnel-protocol octoii-tunnel octoii-tunnel-relay; do
+            npm publish "dist/packages/$name-$VERSION.tgz" --access public --tag "$TAG"
+          done
+
+      - name: Commit, tag and push the release
+        env:
+          VERSION: ${{ inputs.version }}
+          HUSKY: "0"
+        run: |
+          git add packages/*/package.json
+          git commit -m "release: v$VERSION"
+          git tag "v$VERSION"
+          git push origin HEAD:main --follow-tags
