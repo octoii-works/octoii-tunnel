@@ -32,7 +32,7 @@ const FORGOTTEN = 4401;
 
 /** How a connector is set up. */
 export type ConnectorOptions = {
-	/** The relay's origin, such as `https://takotunnel.dev`. */
+	/** The relay's origin, such as `https://octoiitunnel.com`. */
 	readonly relay: string;
 	readonly device: Device;
 	/** Answers each visitor's request. */

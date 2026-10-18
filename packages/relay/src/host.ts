@@ -105,7 +105,7 @@ export type MeterEvent = {
 
 /** How a relay is configured. */
 export type RelayOptions = {
-	/** The relay's own origin on the base domain, such as `https://takotunnel.dev`. */
+	/** The relay's own origin on the base domain, such as `https://octoiitunnel.com`. */
 	readonly origin: string;
 	/** The secret a device presents to register. */
 	readonly registrationToken: string;

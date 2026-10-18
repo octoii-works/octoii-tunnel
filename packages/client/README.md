@@ -6,8 +6,8 @@ the relay, reconnects with backoff, and serves every visitor's request through y
 ```ts
 import { connectDevice, registerDevice } from "@octoii/tunnel";
 
-const device = await registerDevice({ relay: "https://takotunnel.dev", token }); // keep it: the credential is shown once
-const connector = connectDevice({ relay: "https://takotunnel.dev", device, handler: (request) => app.fetch(request) });
+const device = await registerDevice({ relay: "https://octoiitunnel.com", token }); // keep it: the credential is shown once
+const connector = connectDevice({ relay: "https://octoiitunnel.com", device, handler: (request) => app.fetch(request) });
 await connector.ready; // visitors reach device.address
 ```
 

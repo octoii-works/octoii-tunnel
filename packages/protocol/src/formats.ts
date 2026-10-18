@@ -52,7 +52,7 @@ export function sameSecret(left: string, right: string): boolean {
 /** A relay's origin: its scheme and host (with the port, if any). */
 export type RelayOrigin = {
 	readonly scheme: "http" | "https";
-	/** The host and, when one is given, the port, such as `takotunnel.dev` or `127.0.0.1:8787`. */
+	/** The host and, when one is given, the port, such as `octoiitunnel.com` or `127.0.0.1:8787`. */
 	readonly host: string;
 	/** `<scheme>://<host>`. */
 	readonly origin: string;

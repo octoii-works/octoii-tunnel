@@ -17,7 +17,7 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
   an agent that runs as a server on the user's PC. The user talks to it **from their phone**, from anywhere, and the
   phone reaches the PC through octoiitunnel. OctoiiCode depends on `@octoii/tunnel`.
 - This repository is the **open core**: the protocol, the relay and the client, all MIT. Octoii's hosted service at
-  `takotunnel.dev` (accounts, named subdomains, billing, quotas, dashboard, direct connections) is closed and lives
+  `octoiitunnel.com` (accounts, named subdomains, billing, quotas, dashboard, direct connections) is closed and lives
   elsewhere. It plugs into the core only through the relay's `authorize` and `meter` hooks. Never put such concerns here.
 - The relay is a dumb pipe. It forwards, keeps nothing of the traffic, and knows nothing about secure mode.
 - An idle device must cost nothing: the relay never sends on its own, and the `/worker` host hibernates idle sessions.

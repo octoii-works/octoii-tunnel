@@ -20,7 +20,7 @@ import { DeviceSession } from "../session.ts";
 export type RelayEnv = {
 	/** The Durable Object namespace of device sessions. */
 	readonly DEVICES: DurableObjectNamespace;
-	/** The relay's origin on the base domain, such as `https://takotunnel.dev`. */
+	/** The relay's origin on the base domain, such as `https://octoiitunnel.com`. */
 	readonly RELAY_ORIGIN: string;
 	/** The secret a device presents to register. */
 	readonly REGISTRATION_TOKEN: string;

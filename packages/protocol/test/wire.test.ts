@@ -72,8 +72,8 @@ describe("formats", () => {
 	});
 
 	test("parse a relay origin without URL and give a device its address", () => {
-		const relay = parseRelayOrigin("https://takotunnel.dev/");
-		expect(relay).toEqual({ scheme: "https", host: "takotunnel.dev", origin: "https://takotunnel.dev" });
+		const relay = parseRelayOrigin("https://octoiitunnel.com/");
+		expect(relay).toEqual({ scheme: "https", host: "octoiitunnel.com", origin: "https://octoiitunnel.com" });
 		expect(deviceAddress(parseRelayOrigin("http://127.0.0.1:8787"), "a".repeat(26))).toBe(`http://${"a".repeat(26)}.127.0.0.1:8787`);
 		for (const bad of ["ftp://x.dev", "https://user@x.dev", "https://x.dev/path", "https://x.dev?q", "x.dev"]) {
 			expect(() => parseRelayOrigin(bad)).toThrow(ProtocolError);
@@ -162,7 +162,7 @@ describe("the relay's API", () => {
 		expect(matchDevicePath(`/v1/connect/${deviceId}`)).toEqual({ target: "connect", deviceId });
 		expect(matchDevicePath(`/v1/devices/${deviceId}`)).toEqual({ target: "devices", deviceId });
 		expect(matchDevicePath("/v1/agent/x")).toBeUndefined();
-		const relay = parseRelayOrigin("https://takotunnel.dev");
+		const relay = parseRelayOrigin("https://octoiitunnel.com");
 		const registration = { deviceId, credential: newCredential(), address: deviceAddress(relay, deviceId) };
 		expect(decodeRegistration(registration, relay)).toEqual(registration);
 		expect(() => decodeRegistration({ ...registration, address: "https://evil.example" }, relay)).toThrow(ProtocolError);

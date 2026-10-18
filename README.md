@@ -32,7 +32,7 @@ In both modes the relay keeps nothing of the traffic: no bodies, no header value
 Expose a local port:
 
 ```sh
-octoiitunnel register --relay https://takotunnel.dev   # once: prints the device's address
+octoiitunnel register --relay https://octoiitunnel.com   # once: prints the device's address
 octoiitunnel http 3000                                  # forwards visitors to localhost:3000
 ```
 
@@ -41,8 +41,8 @@ From code, on the device:
 ```ts
 import { connectDevice, registerDevice } from "@octoii/tunnel";
 
-const device = await registerDevice({ relay: "https://takotunnel.dev", token });
-const connector = connectDevice({ relay: "https://takotunnel.dev", device, handler: (request) => app.fetch(request) });
+const device = await registerDevice({ relay: "https://octoiitunnel.com", token });
+const connector = connectDevice({ relay: "https://octoiitunnel.com", device, handler: (request) => app.fetch(request) });
 const offer = await connector.offerPairing(); // show offer.url as a QR code to the visitor
 connector.onSecureChannel((channel) => serve(channel));
 ```
