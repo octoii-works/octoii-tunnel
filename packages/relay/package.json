@@ -1,6 +1,6 @@
 {
   "name": "@octoii/tunnel-relay",
-  "version": "0.1.0-preview.0",
+  "version": "0.1.0-preview.1",
   "description": "The octoiitunnel relay: its core, and hosts for the Workers and Durable Object APIs and for one Bun process",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "@octoii/tunnel-protocol",
-  "version": "0.1.0-preview.0",
+  "version": "0.1.0-preview.1",
   "description": "The octoiitunnel wire format: frames, payloads, limits, flow control and formats",
   "type": "module",
   "license": "MIT",

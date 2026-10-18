@@ -1,6 +1,6 @@
 {
   "name": "@octoii/tunnel",
-  "version": "0.1.0-preview.0",
+  "version": "0.1.0-preview.1",
   "description": "The octoiitunnel client: a device's connector, and a visitor's pairing and secure channels",
   "type": "module",
   "license": "MIT",
