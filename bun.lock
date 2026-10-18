@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "octoiitunnel-workspace",
+      "name": "octoii-tunnel-workspace",
       "devDependencies": {
         "@types/bun": "1.4.3",
         "oxlint": "1.87.0",

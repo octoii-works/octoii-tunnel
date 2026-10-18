@@ -13,7 +13,7 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 
 ## Background
 
-- octoiitunnel is Octoii's tunnel. Its first user is **OctoiiCode** (`octoii-works/octoiicode`, locally `/Users/devxiyang/code/Tako`),
+- octoiitunnel is Octoii's tunnel. Its first user is **OctoiiCode** (`octoii-works/octoii-code`, locally `/Users/devxiyang/code/Tako`),
   an agent that runs as a server on the user's PC. The user talks to it **from their phone**, from anywhere, and the
   phone reaches the PC through octoiitunnel. OctoiiCode depends on `@octoii/tunnel`.
 - This repository is the **open core**: the protocol, the relay and the client, all MIT. Octoii's hosted service at
