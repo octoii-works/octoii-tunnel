@@ -69,4 +69,4 @@ jobs:
           git add packages/*/package.json
           git commit -m "release: v$VERSION"
           git tag "v$VERSION"
-          git push origin HEAD:main --follow-tags
+          git push origin HEAD:main "v$VERSION"
