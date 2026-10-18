@@ -5,10 +5,10 @@
   "type": "module",
   "license": "MIT",
   "author": "Elian Yang (https://elianyang.com)",
-  "homepage": "https://github.com/octoii/octoiitunnel/tree/main/packages/protocol#readme",
+  "homepage": "https://github.com/octoii-works/octoiitunnel/tree/main/packages/protocol#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/octoii/octoiitunnel.git",
+    "url": "git+https://github.com/octoii-works/octoiitunnel.git",
     "directory": "packages/protocol"
   },
   "publishConfig": {
