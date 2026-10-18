@@ -24,7 +24,7 @@ import {
 	SendCredit,
 	toClosing,
 	toHeaders,
-} from "@klein-works/takotunnel-protocol";
+} from "@octoii/tunnel-protocol";
 
 /** A visitor's WebSocket on the device, as the service talks over it. */
 export interface TunnelSocket {

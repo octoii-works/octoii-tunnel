@@ -20,7 +20,7 @@ import {
 	PONG,
 	PROTOCOL_VERSION,
 	ProtocolError,
-} from "@klein-works/takotunnel-protocol";
+} from "@octoii/tunnel-protocol";
 
 /** What a connection tells its connector. */
 export type ConnectionEvents = {
@@ -35,7 +35,7 @@ export type ConnectionEvents = {
 };
 
 /** How the connector names itself in `hello`. */
-const CONNECTOR_NAME = "takotunnel/0.0.0";
+const CONNECTOR_NAME = "octoiitunnel/0.0.0";
 /** Bytes the socket may have waiting beyond what flow control allows, for control frames. */
 const SOCKET_BUFFER_SLACK = 1024 * 1024;
 

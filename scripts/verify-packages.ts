@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pack, ROOT, run } from "./workspace.ts";
 
 await run(["bun", "run", "build"]);
-const consumer = await mkdtemp(join(tmpdir(), "takotunnel-consumer-"));
+const consumer = await mkdtemp(join(tmpdir(), "octoiitunnel-consumer-"));
 try {
 	const tarballs = await pack(consumer);
 	for (const path of Object.values(tarballs)) {
@@ -16,16 +16,16 @@ try {
 	const dependencies = Object.fromEntries(Object.entries(tarballs).map(([name, path]) => [name, `file:${path}`]));
 	await Bun.write(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module", dependencies, overrides: dependencies }));
 	await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"], consumer);
-	const portable = ["@klein-works/takotunnel-protocol", "@klein-works/takotunnel", "@klein-works/takotunnel-relay"];
+	const portable = ["@octoii/tunnel-protocol", "@octoii/tunnel", "@octoii/tunnel-relay"];
 	const script = portable.map((name) => `await import(${JSON.stringify(name)});`).join("\n");
 	await Bun.write(join(consumer, "portable.mjs"), script);
 	await run(["node", "portable.mjs"], consumer);
 	await run(["bun", "portable.mjs"], consumer);
-	await Bun.write(join(consumer, "bun.mjs"), 'await import("@klein-works/takotunnel-relay/bun");');
+	await Bun.write(join(consumer, "bun.mjs"), 'await import("@octoii/tunnel-relay/bun");');
 	await run(["bun", "bun.mjs"], consumer);
 	for (const target of ["portable", "bun"]) {
 		if (target === "bun") await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-save", "@types/bun@1.4.3"], consumer);
-		const entries = target === "portable" ? portable : ["@klein-works/takotunnel-relay/bun"];
+		const entries = target === "portable" ? portable : ["@octoii/tunnel-relay/bun"];
 		await Bun.write(join(consumer, "types.ts"), entries.map((name, i) => `import * as entry${i} from ${JSON.stringify(name)}; void entry${i};`).join("\n"));
 		await Bun.write(
 			join(consumer, "tsconfig.json"),

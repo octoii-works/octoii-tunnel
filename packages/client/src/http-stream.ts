@@ -18,7 +18,7 @@ import {
 	SendCredit,
 	sendBody,
 	toHeaders,
-} from "@klein-works/takotunnel-protocol";
+} from "@octoii/tunnel-protocol";
 
 /** What the service gives the connector: a `Response` for each visitor's `Request`. */
 export type Handler = (request: Request) => Response | Promise<Response>;

@@ -1,10 +1,10 @@
-# @klein-works/takotunnel
+# @octoii/tunnel
 
-The takotunnel client. On a device: register it with a relay, and run its connector, which keeps one connection to
+The octoiitunnel client. On a device: register it with a relay, and run its connector, which keeps one connection to
 the relay, reconnects with backoff, and serves every visitor's request through your handler.
 
 ```ts
-import { connectDevice, registerDevice } from "@klein-works/takotunnel";
+import { connectDevice, registerDevice } from "@octoii/tunnel";
 
 const device = await registerDevice({ relay: "https://takotunnel.dev", token }); // keep it: the credential is shown once
 const connector = connectDevice({ relay: "https://takotunnel.dev", device, handler: (request) => app.fetch(request) });
@@ -31,4 +31,4 @@ const channel = await openSecureChannel(pairing, { store: visitorStore });
 const notes = await channel.fetch("/notes"); // answered by the device's own handler
 ```
 
-The root entry runs wherever web standards do. The wire format lives in `@klein-works/takotunnel-protocol`.
+The root entry runs wherever web standards do. The wire format lives in `@octoii/tunnel-protocol`.

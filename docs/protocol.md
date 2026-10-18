@@ -1,8 +1,8 @@
-# takotunnel protocol
+# octoiitunnel protocol
 
 Version 1. The wire format between the connector and the relay, and the relay's HTTP API. Visitors in plain mode speak
 ordinary HTTP and WebSocket to the device's address; the secure channel inside a stream is in
-[security.md](security.md). `@klein-works/takotunnel-protocol` implements this document.
+[security.md](security.md). `@octoii/tunnel-protocol` implements this document.
 
 Numbers are big-endian. Text is UTF-8. JSON payloads are objects; a receiver refuses a payload that is not valid JSON,
 lacks a required field, or has a field of the wrong type.
@@ -102,7 +102,7 @@ upgrade. A refusal answers the visitor with its status; no `head` in time resets
 Then `message` frames flow both ways, and either side ends the stream with `end` carrying the WebSocket close code and
 reason, which the other side passes on. A close without a code the protocol may carry (1005, 1006) is passed on as
 1001; a reason is cut to fit a close frame. A `reset`, or the connector connection dropping, closes the visitor's
-WebSocket with 1011. A WebSocket stream to `/.takotunnel/secure` is a secure channel, handled by the connector library
+WebSocket with 1011. A WebSocket stream to `/.octoiitunnel/secure` is a secure channel, handled by the connector library
 itself.
 
 While the stream has no credit, the relay holds a visitor's messages, up to `MAX_MESSAGE_SIZE` plus `initialCredit`

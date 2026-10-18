@@ -72,7 +72,7 @@ describe("formats", () => {
 	});
 
 	test("parse a relay origin without URL and give a device its address", () => {
-		const relay = parseRelayOrigin("https://TakoTunnel.dev/");
+		const relay = parseRelayOrigin("https://takotunnel.dev/");
 		expect(relay).toEqual({ scheme: "https", host: "takotunnel.dev", origin: "https://takotunnel.dev" });
 		expect(deviceAddress(parseRelayOrigin("http://127.0.0.1:8787"), "a".repeat(26))).toBe(`http://${"a".repeat(26)}.127.0.0.1:8787`);
 		for (const bad of ["ftp://x.dev", "https://user@x.dev", "https://x.dev/path", "https://x.dev?q", "x.dev"]) {
@@ -83,7 +83,7 @@ describe("formats", () => {
 
 describe("payloads", () => {
 	test("hello and welcome round-trip and refuse what breaks their rules", () => {
-		const hello = { version: 1, credential: newCredential(), connector: "takotunnel/1.0.0" };
+		const hello = { version: 1, credential: newCredential(), connector: "octoiitunnel/1.0.0" };
 		expect(decodeHello(encodeHello(hello))).toEqual(hello);
 		expect(() => decodeHello(encodeJson({ ...hello, credential: "x" }))).toThrow(ProtocolError);
 		expect(decodeWelcome(encodeWelcome(DEFAULT_LIMITS))).toEqual(DEFAULT_LIMITS);

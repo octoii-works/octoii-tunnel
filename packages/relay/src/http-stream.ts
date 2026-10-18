@@ -17,7 +17,7 @@ import {
 	SendCredit,
 	sendBody,
 	toHeaders,
-} from "@klein-works/takotunnel-protocol";
+} from "@octoii/tunnel-protocol";
 import { errorResponse } from "./hooks.ts";
 
 /** What an HTTP stream needs from its session. */

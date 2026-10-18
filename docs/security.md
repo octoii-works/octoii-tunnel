@@ -1,4 +1,4 @@
-# takotunnel security
+# octoiitunnel security
 
 What a relay operator, a network attacker and a stranger can and cannot do, and how pairing and the secure channel
 work.
@@ -30,12 +30,12 @@ duration.
    offer as a URL, usually as a QR code:
 
    ```text
-   https://<device id>.<base domain>/#takotunnel-pair=<code, base64url>&key=<connector public key, base64url>
+   https://<device id>.<base domain>/#octoiitunnel-pair=<code, base64url>&key=<connector public key, base64url>
    ```
 
    The fragment never leaves the visitor's device: a browser sends no fragment, and the visitor library reads the
    offer itself. The relay never learns the code or the key from it.
-2. **Handshake.** The visitor opens a WebSocket stream to `/.takotunnel/secure` and runs the handshake below, sending
+2. **Handshake.** The visitor opens a WebSocket stream to `/.octoiitunnel/secure` and runs the handshake below, sending
    the code in its last handshake message.
 3. **Check.** The connector accepts the visitor's key only if the code is one it offered, unused and unexpired; it then
    spends the code and records the key. The visitor accepts the connector only if the connector's static key in the handshake
@@ -47,12 +47,12 @@ A code is checked in constant time. Five failed codes within a minute stop new p
 
 ## Secure channel
 
-A WebSocket stream to `/.takotunnel/secure`, carrying binary messages. The relay forwards it like any other stream.
+A WebSocket stream to `/.octoiitunnel/secure`, carrying binary messages. The relay forwards it like any other stream.
 The connector library handles the path itself and never passes it to the service's handler.
 
 ### Handshake
 
-`Noise_XX_25519_ChaChaPoly_SHA256` (Noise revision 34), the visitor the initiator, prologue `takotunnel/1`. Each
+`Noise_XX_25519_ChaChaPoly_SHA256` (Noise revision 34), the visitor the initiator, prologue `octoiitunnel/1`. Each
 handshake message is one WebSocket message.
 
 | Message | Direction | Noise tokens | Payload |

@@ -11,7 +11,7 @@ import {
 	registerDevice,
 	removeDevice,
 	type SecureChannel,
-} from "@klein-works/takotunnel";
+} from "@octoii/tunnel";
 
 /** The registration token every test relay uses. */
 export const TOKEN = "registration-token-for-tests";
@@ -174,7 +174,7 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 					reached = true;
 					return new Response("plain");
 				});
-				expect((await visit(relay, device, "/.takotunnel/secure")).status).toBe(501);
+				expect((await visit(relay, device, "/.octoiitunnel/secure")).status).toBe(501);
 				expect(reached).toBe(false);
 			});
 		});

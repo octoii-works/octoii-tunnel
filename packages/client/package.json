@@ -1,14 +1,14 @@
 {
-  "name": "@klein-works/takotunnel",
+  "name": "@octoii/tunnel",
   "version": "0.1.0-preview.0",
-  "description": "The takotunnel client: a device's connector, and a visitor's pairing and secure channels",
+  "description": "The octoiitunnel client: a device's connector, and a visitor's pairing and secure channels",
   "type": "module",
   "license": "MIT",
   "author": "Elian Yang (https://elianyang.com)",
-  "homepage": "https://github.com/klein-works/takotunnel/tree/main/packages/client#readme",
+  "homepage": "https://github.com/octoii/octoiitunnel/tree/main/packages/client#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/klein-works/takotunnel.git",
+    "url": "git+https://github.com/octoii/octoiitunnel.git",
     "directory": "packages/client"
   },
   "publishConfig": {
@@ -24,7 +24,7 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@klein-works/takotunnel-protocol": "workspace:*",
+    "@octoii/tunnel-protocol": "workspace:*",
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0"

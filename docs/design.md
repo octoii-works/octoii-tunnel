@@ -1,6 +1,6 @@
-# takotunnel design
+# octoiitunnel design
 
-takotunnel lets a phone, a browser or any HTTP client reach a service on a machine behind NAT, such as the Tako server
+octoiitunnel lets a phone, a browser or any HTTP client reach a service on a machine behind NAT, such as the OctoiiCode server
 on a user's PC, without opening a port. The machine connects out to a relay and keeps the connection open; visitors
 reach the machine at its own address on the relay, and the relay forwards their requests over that connection.
 Visitors the machine has paired with can open a secure channel to it: end to end encrypted, so the relay forwards only
@@ -26,7 +26,7 @@ the rest around it through two hooks; none of it is here, and the core does not 
 | Plain mode | A visitor uses a stream directly; the relay sees what it forwards, as a reverse proxy does |
 | Secure mode | A paired visitor and the connector run a Noise channel inside a WebSocket stream; the relay sees only ciphertext |
 | Pairing | The one-time exchange, started from a QR code the connector shows, after which each side knows the other's key |
-| Pairing store | Where each side keeps its keys and the keys it has paired with; the service using takotunnel provides it |
+| Pairing store | Where each side keeps its keys and the keys it has paired with; the service using octoiitunnel provides it |
 
 ## Requirements
 
@@ -48,17 +48,17 @@ the rest around it through two hooks; none of it is here, and the core does not 
 ## Packages
 
 ```text
-@klein-works/takotunnel-protocol   the wire format: frames, payloads, limits, flow control, formats
+@octoii/tunnel-protocol   the wire format: frames, payloads, limits, flow control, formats
         ▲                    ▲
-@klein-works/takotunnel   @klein-works/takotunnel-relay
+@octoii/tunnel   @octoii/tunnel-relay
  (the client)              (the core; /worker and /bun adapters)
 ```
 
 | Package | What it is |
 | --- | --- |
-| `@klein-works/takotunnel-protocol` | Frame encoding and decoding, payload codecs that validate, limits, close and reset codes, flow control (`SendCredit`, `IncomingBody`), the device id and credential formats, and UTF-8 and base64url written out so they run where `TextDecoder` and `btoa` do not. No I/O |
-| `@klein-works/takotunnel` | The client. On the device: `registerDevice()`, `removeDevice()`, and `connectDevice()`, which returns a `Connector` that keeps the connector connection and serves streams through a handler, offers pairings and accepts secure channels. On the visitor: `pairWith()` and `openSecureChannel()`. `/bun`: a handler that forwards to a local port, a file-backed `PairingStore`, and the `takotunnel` command |
-| `@klein-works/takotunnel-relay` | `createRelay()`, the router and the device session, and two adapters: `/worker` for hosts with the Workers and Durable Object APIs, and `/bun` for a single Bun process with SQLite |
+| `@octoii/tunnel-protocol` | Frame encoding and decoding, payload codecs that validate, limits, close and reset codes, flow control (`SendCredit`, `IncomingBody`), the device id and credential formats, and UTF-8 and base64url written out so they run where `TextDecoder` and `btoa` do not. No I/O |
+| `@octoii/tunnel` | The client. On the device: `registerDevice()`, `removeDevice()`, and `connectDevice()`, which returns a `Connector` that keeps the connector connection and serves streams through a handler, offers pairings and accepts secure channels. On the visitor: `pairWith()` and `openSecureChannel()`. `/bun`: a handler that forwards to a local port, a file-backed `PairingStore`, and the `octoiitunnel` command |
+| `@octoii/tunnel-relay` | `createRelay()`, the router and the device session, and two adapters: `/worker` for hosts with the Workers and Durable Object APIs, and `/bun` for a single Bun process with SQLite |
 
 Each package's root entry uses web standards only. Platform code lives in subpaths. All three are MIT.
 
@@ -145,14 +145,14 @@ does not include one.
   answers nothing for three, and hands each frame to the stream it belongs to.
 - **HTTP streams.** Turn `open` into a `Request` for the handler, and the `Response` back into `head`, `data` and `end`.
 - **WebSocket streams.** Hand the handler a WebSocket pair to accept or refuse, and carry messages both ways.
-- **Secure channels.** A WebSocket stream to `/.takotunnel/secure` never reaches the handler: the connector runs the
+- **Secure channels.** A WebSocket stream to `/.octoiitunnel/secure` never reaches the handler: the connector runs the
   handshake and gives the service a `SecureChannel`.
 
 ## Secure mode in brief
 
 The connector has a static key pair. It offers a pairing as a URL whose fragment holds a one-time code and the
 connector's public key; a browser never sends a fragment, so the relay never sees either. The visitor scans it, opens
-a WebSocket stream to `/.takotunnel/secure`, and runs a Noise XX handshake with the connector that proves the code,
+a WebSocket stream to `/.octoiitunnel/secure`, and runs a Noise XX handshake with the connector that proves the code,
 pins the connector's key, and teaches the connector the visitor's key. Later channels run the same handshake, and the
 connector accepts only keys it has paired with. Inside the channel, messages and fetch-style requests flow encrypted.
 The full design, with what a relay operator can and cannot do, is in [security.md](security.md).

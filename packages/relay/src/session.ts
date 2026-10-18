@@ -24,7 +24,7 @@ import {
 	PROTOCOL_VERSION,
 	ProtocolError,
 	sameSecret,
-} from "@klein-works/takotunnel-protocol";
+} from "@octoii/tunnel-protocol";
 import { authorize, errorResponse, meter, refusal } from "./hooks.ts";
 import type { RelayOptions, RequestContext, SessionHost, SessionSocket } from "./host.ts";
 import { HttpStream } from "./http-stream.ts";

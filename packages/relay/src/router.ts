@@ -16,7 +16,7 @@ import {
 	REGISTRATION_PATH,
 	type Registration,
 	sameSecret,
-} from "@klein-works/takotunnel-protocol";
+} from "@octoii/tunnel-protocol";
 import { authorize, errorResponse, refusal } from "./hooks.ts";
 import type { RelayHost, RelayOptions } from "./host.ts";
 

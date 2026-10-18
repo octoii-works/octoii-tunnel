@@ -21,7 +21,7 @@ function passesOf(name: (typeof packages)[number]): readonly Pass[] {
 
 const cache = join(ROOT, "node_modules/.cache");
 await mkdir(cache, { recursive: true });
-const buildConfig = await mkdtemp(join(cache, "takotunnel-build-"));
+const buildConfig = await mkdtemp(join(cache, "octoiitunnel-build-"));
 try {
 	for (const name of packages) {
 		const directory = join(ROOT, "packages", name);
@@ -40,8 +40,8 @@ try {
 						types: pass.types,
 						lib: pass.lib,
 						paths: {
-							"@klein-works/takotunnel-protocol": [join(ROOT, "packages/protocol/dist/index.d.ts")],
-							"@klein-works/takotunnel": [join(ROOT, "packages/client/dist/index.d.ts")],
+							"@octoii/tunnel-protocol": [join(ROOT, "packages/protocol/dist/index.d.ts")],
+							"@octoii/tunnel": [join(ROOT, "packages/client/dist/index.d.ts")],
 						},
 					},
 					include: [join(directory, pass.include)],

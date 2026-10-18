@@ -2,7 +2,7 @@
  * Pairing offers: a one-time code and the connector's public key in the fragment of the device's address, which a
  * browser never sends, so the relay never learns either.
  */
-import { decodeBase64Url, encodeBase64Url, ProtocolError, sameSecret } from "@klein-works/takotunnel-protocol";
+import { decodeBase64Url, encodeBase64Url, ProtocolError, sameSecret } from "@octoii/tunnel-protocol";
 
 /** How long an offer may be used, in milliseconds. */
 export const OFFER_LIFETIME = 5 * 60_000;
@@ -10,7 +10,7 @@ export const OFFER_LIFETIME = 5 * 60_000;
 const MAX_FAILURES = 5;
 const FAILURE_WINDOW = 60_000;
 const CODE_BYTES = 16;
-const PAIR_PARAMETER = "takotunnel-pair";
+const PAIR_PARAMETER = "octoiitunnel-pair";
 const KEY_PARAMETER = "key";
 
 /** An offer the connector shows, usually as a QR code. */

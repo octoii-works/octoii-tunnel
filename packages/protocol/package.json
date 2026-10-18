@@ -1,14 +1,14 @@
 {
-  "name": "@klein-works/takotunnel-protocol",
+  "name": "@octoii/tunnel-protocol",
   "version": "0.1.0-preview.0",
-  "description": "The takotunnel wire format: frames, payloads, limits, flow control and formats",
+  "description": "The octoiitunnel wire format: frames, payloads, limits, flow control and formats",
   "type": "module",
   "license": "MIT",
   "author": "Elian Yang (https://elianyang.com)",
-  "homepage": "https://github.com/klein-works/takotunnel/tree/main/packages/protocol#readme",
+  "homepage": "https://github.com/octoii/octoiitunnel/tree/main/packages/protocol#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/klein-works/takotunnel.git",
+    "url": "git+https://github.com/octoii/octoiitunnel.git",
     "directory": "packages/protocol"
   },
   "publishConfig": {

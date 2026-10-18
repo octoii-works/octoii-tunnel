@@ -1,5 +1,5 @@
 /** Where each side keeps its static key and the keys it has paired with. */
-import { decodeBase64Url, encodeBase64Url, isJsonObject } from "@klein-works/takotunnel-protocol";
+import { decodeBase64Url, encodeBase64Url, isJsonObject } from "@octoii/tunnel-protocol";
 import { x25519 } from "@noble/curves/ed25519.js";
 import { generateKeyPair, type KeyPair } from "./noise.ts";
 
@@ -42,10 +42,10 @@ export type PairedVisitor = { readonly publicKey: string; readonly name: string;
 /** What a visitor keeps of a device it has paired with. */
 export type Pairing = { readonly address: string; readonly connectorKey: string };
 
-const KEY = "takotunnel:key";
-const VISITOR_PREFIX = "takotunnel:visitor:";
+const KEY = "octoiitunnel:key";
+const VISITOR_PREFIX = "octoiitunnel:visitor:";
 const visitorEntry = (publicKey: string): string => VISITOR_PREFIX + publicKey;
-const pairingEntry = (address: string): string => `takotunnel:pairing:${address}`;
+const pairingEntry = (address: string): string => `octoiitunnel:pairing:${address}`;
 
 /** This side's static key pair, made and kept the first time it is needed. */
 export async function staticKeyOf(store: PairingStore): Promise<KeyPair> {

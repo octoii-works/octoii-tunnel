@@ -10,7 +10,7 @@
  * export const DeviceObject = relay.DeviceObject;
  * ```
  */
-import { PING, PONG, sameSecret } from "@klein-works/takotunnel-protocol";
+import { PING, PONG, sameSecret } from "@octoii/tunnel-protocol";
 import { errorResponse } from "../hooks.ts";
 import type { DeviceRecord, RelayOptions, SessionHost, SessionSocket, SocketAttachment } from "../host.ts";
 import { createRelay } from "../router.ts";
@@ -33,9 +33,9 @@ export type RelayHooks = Pick<RelayOptions, "authorize" | "meter" | "limits">;
  * The path where the Worker creates a device's record in its object. Visitor requests reach the object too, so the
  * request also carries the registration token, which only the Worker knows.
  */
-const CREATE_PATH = "/.takotunnel/create";
+const CREATE_PATH = "/.octoiitunnel/create";
 /** The header that carries the registration token on a create. */
-const CREATE_HEADER = "x-takotunnel-registration";
+const CREATE_HEADER = "x-octoiitunnel-registration";
 /** The storage key of the device's record. */
 const RECORD_KEY = "device";
 

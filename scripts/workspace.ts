@@ -35,7 +35,7 @@ export async function manifest(name: string) {
 
 export async function pack(destination: string): Promise<Record<string, string>> {
 	await mkdir(destination, { recursive: true });
-	const staging = await mkdtemp(join(tmpdir(), "takotunnel-pack-"));
+	const staging = await mkdtemp(join(tmpdir(), "octoiitunnel-pack-"));
 	const result: Record<string, string> = {};
 	try {
 		const versions = new Map<string, string>();

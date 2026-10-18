@@ -1,15 +1,15 @@
 /**
- * The Noise XX handshake of a secure channel, the visitor the initiator, with prologue `takotunnel/1`. The visitor
+ * The Noise XX handshake of a secure channel, the visitor the initiator, with prologue `octoiitunnel/1`. The visitor
  * proves a pairing code or a paired key in its last message; the connector answers `ready` once it accepts.
  */
-import { decodeBase64Url, decodeJsonObject, encodeBase64Url, encodeJson, encodeUtf8, isStringUpTo, SECURE_PATH } from "@klein-works/takotunnel-protocol";
+import { decodeBase64Url, decodeJsonObject, encodeBase64Url, encodeJson, encodeUtf8, isStringUpTo, SECURE_PATH } from "@octoii/tunnel-protocol";
 import { SecureChannel, VisitorChannel } from "./channel.ts";
 import { type KeyPair, XXHandshake } from "./noise.ts";
 import type { PairingOffers } from "./offers.ts";
 import { keepVisitor, type PairingStore, pairedVisitor } from "./store.ts";
 import type { TunnelSocket } from "../websocket-stream.ts";
 
-const PROLOGUE = encodeUtf8("takotunnel/1");
+const PROLOGUE = encodeUtf8("octoiitunnel/1");
 /** How long a handshake may take, `ready` included. */
 const HANDSHAKE_TIMEOUT = 10_000;
 /** The close code of a refused handshake, which tells a stranger nothing more. */

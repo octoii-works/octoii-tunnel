@@ -6,7 +6,7 @@ import { isJsonObject } from "./json.ts";
 /** Where devices register: `POST` on the base domain. */
 export const REGISTRATION_PATH = "/v1/devices";
 /** The path on a device's address that a secure channel opens on; the connector keeps it from the service. */
-export const SECURE_PATH = "/.takotunnel/secure";
+export const SECURE_PATH = "/.octoiitunnel/secure";
 /** The largest registration body the relay reads. */
 export const MAX_REGISTRATION_BYTES = 4096;
 /** The longest name a device may register with. */

@@ -1,5 +1,5 @@
 /**
- * The takotunnel wire format, shared by the client and the relay: frames and their payloads, the rules of the
+ * The octoiitunnel wire format, shared by the client and the relay: frames and their payloads, the rules of the
  * connector connection, limits, flow control, WebSocket messages, the relay's HTTP API, and the formats of device ids,
  * credentials and addresses. It does no I/O, and runs wherever web standards do, Hermes included.
  */

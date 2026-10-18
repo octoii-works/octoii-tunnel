@@ -37,7 +37,7 @@ pack staging directories are removed when the command ends.
 1. Update all package versions together and record changes in each package's `[Unreleased]` section.
 2. Run `bun run check`, `bun run pack` and `bun run verify:packages`.
 3. Inspect the generated tarballs, then publish each with `npm publish <tarball> --access public`, adding `--tag next`
-   for a preview. Publication is Klein's explicit decision; no script uploads packages or deploys a relay.
+   for a preview. Publication is Octoii's explicit decision; no script uploads packages or deploys a relay.
 
 ## Development server
 

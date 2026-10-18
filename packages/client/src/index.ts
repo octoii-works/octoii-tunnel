@@ -1,5 +1,5 @@
 /**
- * The takotunnel client. On a device: register it with a relay, and run its connector, which serves visitors' requests
+ * The octoiitunnel client. On a device: register it with a relay, and run its connector, which serves visitors' requests
  * through a handler, offer pairings and accept secure channels. On a visitor: pair with a device, and open secure
  * channels to it. It runs wherever web standards do.
  */

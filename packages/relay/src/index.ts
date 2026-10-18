@@ -1,5 +1,5 @@
 /**
- * The takotunnel relay's core: the router and the device session, and the interfaces a host implements to run them.
+ * The octoiitunnel relay's core: the router and the device session, and the interfaces a host implements to run them.
  * Hosts live in subpaths: `/worker` for the Workers and Durable Object APIs, `/bun` for one Bun process.
  */
 export { errorResponse } from "./hooks.ts";

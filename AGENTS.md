@@ -1,6 +1,6 @@
 # AGENTS.md
 
-takotunnel lets visitors reach a service on a machine behind NAT through a relay the machine connects out to, and lets
+octoiitunnel lets visitors reach a service on a machine behind NAT through a relay the machine connects out to, and lets
 paired visitors talk to the machine end to end encrypted. Start with [README.md](README.md), then the specs:
 
 - [docs/design.md](docs/design.md): the packages, the relay and its hosts, the connector.
@@ -13,10 +13,10 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 
 ## Background
 
-- takotunnel is Klein's tunnel. Its first user is **Tako** (`klein-works/tako`, locally `/Users/devxiyang/code/Tako`),
+- octoiitunnel is Octoii's tunnel. Its first user is **OctoiiCode** (`octoii/octoiicode`, locally `/Users/devxiyang/code/Tako`),
   an agent that runs as a server on the user's PC. The user talks to it **from their phone**, from anywhere, and the
-  phone reaches the PC through takotunnel. Tako depends on `@klein-works/takotunnel`.
-- This repository is the **open core**: the protocol, the relay and the client, all MIT. Klein's hosted service at
+  phone reaches the PC through octoiitunnel. OctoiiCode depends on `@octoii/tunnel`.
+- This repository is the **open core**: the protocol, the relay and the client, all MIT. Octoii's hosted service at
   `takotunnel.dev` (accounts, named subdomains, billing, quotas, dashboard, direct connections) is closed and lives
   elsewhere. It plugs into the core only through the relay's `authorize` and `meter` hooks. Never put such concerns here.
 - The relay is a dumb pipe. It forwards, keeps nothing of the traffic, and knows nothing about secure mode.
@@ -45,5 +45,5 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 - Commits use conventional messages (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 - Each package keeps a `CHANGELOG.md` with an `[Unreleased]` section, entries under `### Added`, `### Changed`, `### Fixed`, `### Removed` or `### Breaking Changes`.
 - No secrets in the repo; tests generate their credentials and keys.
-- Read other repositories, such as Tako's, for reference only: never change, commit, install or format anything outside this repository.
-- The packages are published to npm under `@klein-works`, all at one version; previews go under the `next` tag. Publish only when Klein asks.
+- Read other repositories, such as OctoiiCode's, for reference only: never change, commit, install or format anything outside this repository.
+- The packages are published to npm under `@octoii`, all at one version; previews go under the `next` tag. Publish only when Octoii asks.

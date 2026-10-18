@@ -1,4 +1,4 @@
-# takotunnel
+# octoiitunnel
 
 Reach a service on your own machine from anywhere, without opening a port, and without the relay in between being
 able to read what you send.
@@ -7,7 +7,7 @@ Your machine runs a connector that connects out to a relay and keeps that connec
 at its own address on the relay, `https://<device>.<relay domain>`, and the relay forwards their requests over the
 connection. Paired visitors can talk to the machine end to end encrypted: the relay then forwards only ciphertext.
 
-Tako uses takotunnel so you can talk to the agent on your PC from your phone. Anything else that serves HTTP or
+OctoiiCode uses octoiitunnel so you can talk to the agent on your PC from your phone. Anything else that serves HTTP or
 WebSockets can use it too.
 
 ## Two modes
@@ -23,23 +23,23 @@ In both modes the relay keeps nothing of the traffic: no bodies, no header value
 
 | Package | What it is |
 | --- | --- |
-| [`@klein-works/takotunnel-protocol`](packages/protocol) | The wire format: frames, payloads, limits, flow control, device id and credential formats |
-| [`@klein-works/takotunnel`](packages/client) | The client. On the device: register it, run its connector, offer pairings, accept secure channels. On the visitor: pair, and open a secure channel. A `takotunnel` command exposes a local port |
-| [`@klein-works/takotunnel-relay`](packages/relay) | The relay: its core, and adapters for hosts with the Workers and Durable Object APIs (`/worker`) and for a single Bun process with SQLite (`/bun`) |
+| [`@octoii/tunnel-protocol`](packages/protocol) | The wire format: frames, payloads, limits, flow control, device id and credential formats |
+| [`@octoii/tunnel`](packages/client) | The client. On the device: register it, run its connector, offer pairings, accept secure channels. On the visitor: pair, and open a secure channel. A `octoiitunnel` command exposes a local port |
+| [`@octoii/tunnel-relay`](packages/relay) | The relay: its core, and adapters for hosts with the Workers and Durable Object APIs (`/worker`) and for a single Bun process with SQLite (`/bun`) |
 
 ## Use it
 
 Expose a local port:
 
 ```sh
-takotunnel register --relay https://takotunnel.dev   # once: prints the device's address
-takotunnel http 3000                                  # forwards visitors to localhost:3000
+octoiitunnel register --relay https://takotunnel.dev   # once: prints the device's address
+octoiitunnel http 3000                                  # forwards visitors to localhost:3000
 ```
 
 From code, on the device:
 
 ```ts
-import { connectDevice, registerDevice } from "@klein-works/takotunnel";
+import { connectDevice, registerDevice } from "@octoii/tunnel";
 
 const device = await registerDevice({ relay: "https://takotunnel.dev", token });
 const connector = connectDevice({ relay: "https://takotunnel.dev", device, handler: (request) => app.fetch(request) });
@@ -50,7 +50,7 @@ connector.onSecureChannel((channel) => serve(channel));
 On the visitor:
 
 ```ts
-import { openSecureChannel, pairWith } from "@klein-works/takotunnel";
+import { openSecureChannel, pairWith } from "@octoii/tunnel";
 
 const pairing = await pairWith(offerUrl, { store }); // once, from the QR code
 const channel = await openSecureChannel(pairing, { store });
@@ -59,9 +59,9 @@ channel.send(message);
 
 ## Run your own relay
 
-- **On a host with the Workers and Durable Object APIs:** deploy `@klein-works/takotunnel-relay/worker` with a
+- **On a host with the Workers and Durable Object APIs:** deploy `@octoii/tunnel-relay/worker` with a
   Durable Object binding for device sessions. Idle devices hibernate and cost nothing.
-- **On one machine:** run `@klein-works/takotunnel-relay/bun`, which keeps device records in a SQLite file.
+- **On one machine:** run `@octoii/tunnel-relay/bun`, which keeps device records in a SQLite file.
 
 Either way you need a wildcard domain (`*.<your domain>`) and the bare domain pointing at the relay, TLS for both, and
 `REGISTRATION_TOKEN`, the secret a device presents to register. Point the client at your relay with `--relay` or the
@@ -79,7 +79,7 @@ Either way you need a wildcard domain (`*.<your domain>`) and the bare domain po
 Under construction. Built: the protocol package; registration; the connector with heartbeats and reconnects; plain
 HTTP streams and visitor WebSockets under flow control; sessions that resume from their sockets; and the Bun host with
 SQLite and the Durable Object host with hibernation, both passing one behavioral suite; pairing and secure channels.
-Being built: reopening a dropped secure channel on its own, a file-backed pairing store, and the `takotunnel`
+Being built: reopening a dropped secure channel on its own, a file-backed pairing store, and the `octoiitunnel`
 command.
 
 ## License

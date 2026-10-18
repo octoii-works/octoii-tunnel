@@ -1,5 +1,5 @@
 /** Channel frames, the plaintext of each Noise transport message of a secure channel. */
-import { ProtocolError } from "@klein-works/takotunnel-protocol";
+import { ProtocolError } from "@octoii/tunnel-protocol";
 import { MAX_MESSAGE_LENGTH, TAG_LENGTH } from "./noise.ts";
 
 /** The channel frame types, by name. */

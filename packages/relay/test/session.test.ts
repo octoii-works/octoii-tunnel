@@ -12,7 +12,7 @@ import {
 	newDeviceId,
 	PING,
 	PONG,
-} from "@klein-works/takotunnel-protocol";
+} from "@octoii/tunnel-protocol";
 import { DeviceSession, type SessionSocket, type SocketAttachment } from "../src/index.ts";
 
 const ORIGIN = "https://relay.test";
