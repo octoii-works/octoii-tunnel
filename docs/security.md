@@ -21,6 +21,9 @@ duration.
   is the device's identity in secure mode.
 - Each visitor has its own static x25519 key pair, kept in its pairing store (on a phone, the app's storage or the
   browser's IndexedDB, with the private key non-extractable where the platform allows).
+- Every key, ephemeral keys and pairing codes included, comes from the `randomBytes` of the platform each side is
+  given, which must be a cryptographically secure source: `crypto.getRandomValues` in `/web`, or the app's own secure
+  source on an engine without it. The client never falls back to `Math.random` or to randomness of its own.
 - The connector's pairing store holds the visitors it has paired with: each one's public key, a name, and when it paired
   and was last seen. Removing a visitor revokes it at once: its next handshake fails, and its open channels close.
 

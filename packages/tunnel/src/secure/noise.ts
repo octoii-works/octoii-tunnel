@@ -6,6 +6,7 @@ import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { x25519 } from "@noble/curves/ed25519.js";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+import type { RandomBytes } from "../platform.ts";
 import { encodeUtf8 } from "../protocol/index.ts";
 
 export const PROTOCOL_NAME = "Noise_XX_25519_ChaChaPoly_SHA256";
@@ -19,10 +20,14 @@ const EMPTY = new Uint8Array(0);
 /** An x25519 key pair. */
 export type KeyPair = { readonly publicKey: Uint8Array; readonly privateKey: Uint8Array };
 
-/** A new x25519 key pair, from the platform's secure randomness. */
-export function generateKeyPair(): KeyPair {
-	const privateKey = crypto.getRandomValues(new Uint8Array(KEY_LENGTH));
+/** A new x25519 key pair, from the host's secure randomness. */
+export function generateKeyPair(randomBytes: RandomBytes): KeyPair {
+	const privateKey = randomBytes(KEY_LENGTH);
 	return { publicKey: x25519.getPublicKey(privateKey), privateKey };
+}
+
+function isKeyPair(key: KeyPair): boolean {
+	return key.privateKey.length === KEY_LENGTH && key.publicKey.length === KEY_LENGTH;
 }
 
 /** A key and the count of messages it has handled, which is each message's nonce. */
@@ -78,8 +83,8 @@ export type HandshakeOptions = {
 	readonly initiator: boolean;
 	readonly staticKey: KeyPair;
 	readonly prologue: Uint8Array;
-	/** A fixed ephemeral key instead of a new one; only for test vectors. */
-	readonly ephemeralKey?: KeyPair;
+	/** This side's ephemeral key: a new one for every handshake, from `generateKeyPair`, or a test vector's. */
+	readonly ephemeralKey: KeyPair;
 };
 
 /** The two CipherStates a finished handshake splits into, one for each direction. */
@@ -89,7 +94,7 @@ export type TransportCiphers = { readonly send: CipherState; readonly receive: C
 export class XXHandshake {
 	private readonly initiator: boolean;
 	private readonly staticKey: KeyPair;
-	private ephemeralKey: KeyPair | undefined;
+	private readonly ephemeralKey: KeyPair;
 	private remoteEphemeralKey: Uint8Array | undefined;
 	private remoteStatic: Uint8Array | undefined;
 	private chainingKey: Uint8Array;
@@ -99,9 +104,8 @@ export class XXHandshake {
 	private step = 0;
 
 	constructor(options: HandshakeOptions) {
-		if (options.staticKey.privateKey.length !== KEY_LENGTH || options.staticKey.publicKey.length !== KEY_LENGTH) {
-			throw new Error("A static key must be an x25519 key pair of 32-byte keys");
-		}
+		if (!isKeyPair(options.staticKey)) throw new Error("A static key must be an x25519 key pair of 32-byte keys");
+		if (!isKeyPair(options.ephemeralKey)) throw new Error("An ephemeral key must be an x25519 key pair of 32-byte keys");
 		this.initiator = options.initiator;
 		this.staticKey = options.staticKey;
 		this.ephemeralKey = options.ephemeralKey;
@@ -127,7 +131,6 @@ export class XXHandshake {
 		const parts: Uint8Array[] = [];
 		for (const token of tokens) {
 			if (token === "e") {
-				this.ephemeralKey ??= generateKeyPair();
 				parts.push(this.ephemeralKey.publicKey);
 				this.mixHash(this.ephemeralKey.publicKey);
 			} else if (token === "s") {
@@ -191,9 +194,9 @@ export class XXHandshake {
 		const responderKey = token[1] === "e" ? "e" : "s";
 		const local = this.initiator ? initiatorKey : responderKey;
 		const remote = this.initiator ? responderKey : initiatorKey;
-		const privateKey = local === "e" ? this.ephemeralKey?.privateKey : this.staticKey.privateKey;
+		const privateKey = local === "e" ? this.ephemeralKey.privateKey : this.staticKey.privateKey;
 		const publicKey = remote === "e" ? this.remoteEphemeralKey : this.remoteStatic;
-		if (privateKey === undefined || publicKey === undefined) throw new Error(`The keys for ${token} are missing`);
+		if (publicKey === undefined) throw new Error(`The keys for ${token} are missing`);
 		return x25519.getSharedSecret(privateKey, publicKey);
 	}
 

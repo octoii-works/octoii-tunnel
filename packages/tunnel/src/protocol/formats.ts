@@ -18,10 +18,10 @@ export function isDeviceId(value: unknown): value is string {
 	return typeof value === "string" && DEVICE_ID.test(value);
 }
 
-/** A new random device id. */
-export function newDeviceId(): string {
+/** A new random device id, from `randomBytes`, a secure source of `length` random bytes. */
+export function newDeviceId(randomBytes: (length: number) => Uint8Array): string {
 	// 32 divides 256, so masking a random byte to 5 bits keeps every character equally likely.
-	const bytes = crypto.getRandomValues(new Uint8Array(DEVICE_ID_LENGTH));
+	const bytes = randomBytes(DEVICE_ID_LENGTH);
 	return Array.from(bytes, (byte) => DEVICE_ID_ALPHABET.charAt(byte & 31)).join("");
 }
 
@@ -30,9 +30,9 @@ export function isCredential(value: unknown): value is string {
 	return typeof value === "string" && CREDENTIAL.test(value);
 }
 
-/** A new random credential. */
-export function newCredential(): string {
-	return encodeBase64Url(crypto.getRandomValues(new Uint8Array(CREDENTIAL_BYTES)));
+/** A new random credential, from `randomBytes`, a secure source of `length` random bytes. */
+export function newCredential(randomBytes: (length: number) => Uint8Array): string {
+	return encodeBase64Url(randomBytes(CREDENTIAL_BYTES));
 }
 
 /** What the relay keeps of a credential: its SHA-256 in hex. */

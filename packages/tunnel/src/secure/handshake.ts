@@ -3,8 +3,9 @@
  * proves a pairing code or a paired key in its last message; the connector answers `ready` once it accepts.
  */
 import { decodeBase64Url, decodeJsonObject, encodeBase64Url, encodeJson, encodeUtf8, isStringUpTo, SECURE_PATH } from "../protocol/index.ts";
+import type { Platform } from "../platform.ts";
 import { SecureChannel, VisitorChannel } from "./channel.ts";
-import { type KeyPair, XXHandshake } from "./noise.ts";
+import { generateKeyPair, type KeyPair, XXHandshake } from "./noise.ts";
 import type { PairingOffers } from "./offers.ts";
 import { keepVisitor, type PairingStore, pairedVisitor } from "./store.ts";
 import type { TunnelSocket } from "../websocket-stream.ts";
@@ -21,6 +22,7 @@ export type ResponderOptions = {
 	readonly key: KeyPair;
 	readonly store: PairingStore;
 	readonly offers: PairingOffers;
+	readonly platform: Platform;
 	/** The device's address, which requests over the channel are made against. */
 	readonly address: string;
 	readonly handler: (request: Request) => Response | Promise<Response>;
@@ -30,15 +32,16 @@ export type ResponderOptions = {
 
 /** Runs the connector's side of a handshake on a visitor's WebSocket, and hands over the channel once it accepts. */
 export function respond(socket: TunnelSocket, options: ResponderOptions): void {
-	const handshake = new XXHandshake({ initiator: false, staticKey: options.key, prologue: PROLOGUE });
-	const timeout = setTimeout(() => socket.close(REFUSED, ""), HANDSHAKE_TIMEOUT);
+	const { clock, randomBytes } = options.platform;
+	const handshake = new XXHandshake({ initiator: false, staticKey: options.key, ephemeralKey: generateKeyPair(randomBytes), prologue: PROLOGUE });
+	const cancelTimeout = clock.setTimer(() => socket.close(REFUSED, ""), HANDSHAKE_TIMEOUT);
 	let step = 0;
 	const refuse = (): void => {
-		clearTimeout(timeout);
+		cancelTimeout();
 		socket.onmessage = undefined;
 		socket.close(REFUSED, "");
 	};
-	socket.onclose = () => clearTimeout(timeout);
+	socket.onclose = () => cancelTimeout();
 	socket.onmessage = (message) => {
 		if (typeof message === "string" || step > 1) return refuse();
 		try {
@@ -50,7 +53,7 @@ export function respond(socket: TunnelSocket, options: ResponderOptions): void {
 			const proof = handshake.readMessage(message);
 			socket.onmessage = undefined;
 			void accept(socket, handshake, proof, options).then((channel) => {
-				clearTimeout(timeout);
+				cancelTimeout();
 				if (channel === undefined) return refuse();
 				socket.onmessage = (data) => (typeof data === "string" ? channel.close(REFUSED, "") : channel.received(data));
 				socket.onclose = (code, reason) => channel.socketClosed(code, reason);
@@ -74,7 +77,7 @@ async function accept(socket: TunnelSocket, handshake: XXHandshake, proof: Uint8
 	const known = await pairedVisitor(options.store, publicKey);
 	if (typeof pair === "string") {
 		if (!options.offers.redeem(pair)) return undefined;
-		await keepVisitor(options.store, { publicKey, name, pairedAt: Date.now() });
+		await keepVisitor(options.store, { publicKey, name, pairedAt: options.platform.clock.now() });
 	} else if (known === undefined) return undefined;
 	const link = { send: (bytes: Uint8Array) => socket.send(bytes), close: (code: number, reason: string) => socket.close(code, reason) };
 	return new SecureChannel(link, handshake.split(), { publicKey, name: known?.name ?? name }, options.address, options.handler);
@@ -89,18 +92,19 @@ export function initiate(
 	key: KeyPair,
 	connectorKey: string,
 	proof: { readonly pair?: string; readonly name?: string },
+	platform: Platform,
 ): Promise<VisitorChannel> {
 	const expected = decodeBase64Url(connectorKey);
 	const socket = new WebSocket(address.replace(/^http/, "ws") + SECURE_PATH);
 	socket.binaryType = "arraybuffer";
-	const handshake = new XXHandshake({ initiator: true, staticKey: key, prologue: PROLOGUE });
+	const handshake = new XXHandshake({ initiator: true, staticKey: key, ephemeralKey: generateKeyPair(platform.randomBytes), prologue: PROLOGUE });
 	return new Promise<VisitorChannel>((resolve, reject) => {
 		const fail = (error: Error): void => {
-			clearTimeout(timeout);
+			cancelTimeout();
 			socket.close();
 			reject(error);
 		};
-		const timeout = setTimeout(() => fail(new Error("The device did not finish the handshake")), HANDSHAKE_TIMEOUT);
+		const cancelTimeout = platform.clock.setTimer(() => fail(new Error("The device did not finish the handshake")), HANDSHAKE_TIMEOUT);
 		let channel: VisitorChannel | undefined;
 		const send = (bytes: Uint8Array): void => socket.send(new Uint8Array(bytes));
 		socket.addEventListener("open", () => send(handshake.writeMessage(new Uint8Array(0))));
@@ -115,7 +119,7 @@ export function initiate(
 				const opened = new VisitorChannel({ send, close: (code, reason) => socket.close(code, reason) }, handshake.split());
 				channel = opened;
 				opened.opened.then(() => {
-					clearTimeout(timeout);
+					cancelTimeout();
 					resolve(opened);
 				}, fail);
 			} catch {

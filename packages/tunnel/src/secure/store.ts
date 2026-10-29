@@ -1,6 +1,7 @@
 /** Where each side keeps its static key and the keys it has paired with. */
 import { decodeBase64Url, encodeBase64Url, isJsonObject } from "../protocol/index.ts";
 import { x25519 } from "@noble/curves/ed25519.js";
+import type { RandomBytes } from "../platform.ts";
 import { generateKeyPair, type KeyPair } from "./noise.ts";
 
 /**
@@ -47,14 +48,14 @@ const VISITOR_PREFIX = "octoiitunnel:visitor:";
 const visitorEntry = (publicKey: string): string => VISITOR_PREFIX + publicKey;
 const pairingEntry = (address: string): string => `octoiitunnel:pairing:${address}`;
 
-/** This side's static key pair, made and kept the first time it is needed. */
-export async function staticKeyOf(store: PairingStore): Promise<KeyPair> {
+/** This side's static key pair, made from `randomBytes` and kept the first time it is needed. */
+export async function staticKeyOf(store: PairingStore, randomBytes: RandomBytes): Promise<KeyPair> {
 	const kept = await store.get(KEY);
 	if (kept !== undefined) {
 		const privateKey = decodeBase64Url(kept);
 		return { privateKey, publicKey: x25519.getPublicKey(privateKey) };
 	}
-	const keyPair = generateKeyPair();
+	const keyPair = generateKeyPair(randomBytes);
 	await store.set(KEY, encodeBase64Url(keyPair.privateKey));
 	return keyPair;
 }

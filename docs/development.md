@@ -1,13 +1,20 @@
 # Development and packaging
 
 Use the runtime version in `package.json`. Run `bun install`, then `bun run check` for formatting, lint, strict
-platform-neutral and host type checks, the protocol's and the client's unit tests, and the
+platform-neutral and host type checks, the protocol's and the client's unit tests, the portability scan, and the
 integration tests of the client against both relay hosts. Integration tests bind loopback ports and generate fresh
 credentials.
 
+The portability scan (`packages/tunnel/test/portability.test.ts`) reads every source file of the client and the
+protocol but `web.ts`, and fails on a platform module, a package other than the `@noble` libraries, a construct Hermes
+refuses or a built-in it lacks, a `URL`, or a read of the host's clock, timers or randomness. It also holds the
+protocol to importing nothing of the client. Running the tests on Hermes itself needs a Hermes VM built from source;
+it is not part of `bun run check`.
+
 ## Repository layout
 
-- `packages/tunnel/src`: the portable client; `protocol/` is the wire format, shared with the relay; `bun/` holds the local-port handler, the file pairing store and the command.
+- `packages/tunnel/src`: the portable client; `protocol/` is the wire format, shared with the relay; `web.ts` is the web
+  standards' platform; `bun/` holds the local-port handler, the file pairing store and the command.
 - `packages/relay/src`: the router, the device session and the host interfaces; `worker/` and `bun/` are the two hosts.
 - `packages/*/test`: unit tests, and one behavioral suite run against both relay hosts.
 - `scripts`: workspace builds, packaging, package verification and the development relay.

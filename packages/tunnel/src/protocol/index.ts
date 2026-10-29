@@ -16,6 +16,7 @@ export {
 	MAX_REGISTRATION_BYTES,
 	REGISTRATION_PATH,
 	type Registration,
+	isSecurePath,
 	SECURE_PATH,
 } from "./api.ts";
 export { decodeBase64Url, encodeBase64Url } from "./base64url.ts";

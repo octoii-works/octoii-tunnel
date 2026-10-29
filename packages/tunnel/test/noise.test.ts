@@ -72,8 +72,18 @@ describe("Noise_XX_25519_ChaChaPoly_SHA256", () => {
 	}
 
 	it("rekeys both sides alike, so the channel goes on", () => {
-		const initiator = new XXHandshake({ initiator: true, staticKey: keyPair("11".repeat(32)), prologue: new Uint8Array(0) });
-		const responder = new XXHandshake({ initiator: false, staticKey: keyPair("22".repeat(32)), prologue: new Uint8Array(0) });
+		const initiator = new XXHandshake({
+			initiator: true,
+			staticKey: keyPair("11".repeat(32)),
+			ephemeralKey: keyPair("33".repeat(32)),
+			prologue: new Uint8Array(0),
+		});
+		const responder = new XXHandshake({
+			initiator: false,
+			staticKey: keyPair("22".repeat(32)),
+			ephemeralKey: keyPair("44".repeat(32)),
+			prologue: new Uint8Array(0),
+		});
 		responder.readMessage(initiator.writeMessage(new Uint8Array(0)));
 		initiator.readMessage(responder.writeMessage(new Uint8Array(0)));
 		responder.readMessage(initiator.writeMessage(new Uint8Array(0)));
@@ -86,7 +96,12 @@ describe("Noise_XX_25519_ChaChaPoly_SHA256", () => {
 	});
 
 	it("refuses a message out of turn", () => {
-		const initiator = new XXHandshake({ initiator: true, staticKey: keyPair("11".repeat(32)), prologue: new Uint8Array(0) });
+		const initiator = new XXHandshake({
+			initiator: true,
+			staticKey: keyPair("11".repeat(32)),
+			ephemeralKey: keyPair("33".repeat(32)),
+			prologue: new Uint8Array(0),
+		});
 		expect(() => initiator.readMessage(new Uint8Array(32))).toThrow("out of turn");
 	});
 });

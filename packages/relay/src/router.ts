@@ -58,6 +58,11 @@ function deviceIdOf(host: string, origin: RelayOrigin): string | undefined {
 	return isDeviceId(deviceId) ? deviceId : undefined;
 }
 
+/** `length` bytes of the web standards' secure randomness, which every relay host has. */
+function secureRandomBytes(length: number): Uint8Array {
+	return crypto.getRandomValues(new Uint8Array(length));
+}
+
 async function register(request: Request, host: RelayHost, origin: RelayOrigin, options: RelayOptions): Promise<Response> {
 	if (!sameSecret(request.headers.get("authorization") ?? "", `Bearer ${options.registrationToken}`)) {
 		return errorResponse("unauthorized", "Invalid registration token");
@@ -67,8 +72,8 @@ async function register(request: Request, host: RelayHost, origin: RelayOrigin, 
 	const name = await registrationName(request);
 	if (name === undefined) return errorResponse("invalid", "A registration body is at most 4096 bytes of { name? }");
 	for (let attempt = 0; attempt < REGISTRATION_ATTEMPTS; attempt++) {
-		const deviceId = newDeviceId();
-		const credential = newCredential();
+		const deviceId = newDeviceId(secureRandomBytes);
+		const credential = newCredential(secureRandomBytes);
 		if (!(await host.createDevice({ id: deviceId, name, credentialHash: hashCredential(credential) }))) continue;
 		const registration: Registration = { deviceId, credential, address: deviceAddress(origin, deviceId) };
 		return Response.json(registration, { status: 201 });

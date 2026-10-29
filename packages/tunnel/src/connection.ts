@@ -21,6 +21,7 @@ import {
 	PROTOCOL_VERSION,
 	ProtocolError,
 } from "./protocol/index.ts";
+import { type Clock, repeat } from "./platform.ts";
 
 /** What a connection tells its connector. */
 export type ConnectionEvents = {
@@ -38,6 +39,8 @@ export type ConnectionEvents = {
 const CONNECTOR_NAME = "octoiitunnel/0.0.0";
 /** Bytes the socket may have waiting beyond what flow control allows, for control frames. */
 const SOCKET_BUFFER_SLACK = 1024 * 1024;
+/** How often the connection checks whether a heartbeat is due, or the relay has gone silent. */
+const HEARTBEAT_CHECK_INTERVAL = 1000;
 
 /** One WebSocket from the connector to the relay. */
 export class ConnectorConnection {
@@ -45,13 +48,16 @@ export class ConnectorConnection {
 	limits: Limits = DEFAULT_LIMITS;
 	private readonly socket: WebSocket;
 	private readonly events: ConnectionEvents;
+	private readonly clock: Clock;
 	private welcomed = false;
-	private lastHeard = Date.now();
+	private lastHeard: number;
 	private lastPing = 0;
-	private heartbeat: ReturnType<typeof setInterval> | undefined;
+	private readonly stopHeartbeat: () => void;
 
-	constructor(url: string, credential: string, events: ConnectionEvents) {
+	constructor(url: string, credential: string, clock: Clock, events: ConnectionEvents) {
 		this.events = events;
+		this.clock = clock;
+		this.lastHeard = clock.now();
 		this.socket = new WebSocket(url);
 		this.socket.binaryType = "arraybuffer";
 		this.socket.addEventListener("open", () =>
@@ -60,10 +66,10 @@ export class ConnectorConnection {
 		this.socket.addEventListener("message", (event) => this.message(event.data));
 		this.socket.addEventListener("error", () => this.events.error(new Error("The relay connection failed")));
 		this.socket.addEventListener("close", (event) => {
-			clearInterval(this.heartbeat);
+			this.stopHeartbeat();
 			this.events.closed(event.code);
 		});
-		this.heartbeat = setInterval(() => this.checkHeartbeat(), 1000);
+		this.stopHeartbeat = repeat(clock, () => this.checkHeartbeat(), HEARTBEAT_CHECK_INTERVAL);
 	}
 
 	/** Sends a stream frame; throws when the connection is not open or its send buffer is full. */
@@ -78,12 +84,12 @@ export class ConnectorConnection {
 	}
 
 	close(code: number, reason: string): void {
-		clearInterval(this.heartbeat);
+		this.stopHeartbeat();
 		this.socket.close(code, reason);
 	}
 
 	private message(data: unknown): void {
-		this.lastHeard = Date.now();
+		this.lastHeard = this.clock.now();
 		if (data === PONG) return;
 		try {
 			if (!(data instanceof ArrayBuffer)) throw new ProtocolError("Unexpected text message");
@@ -107,7 +113,7 @@ export class ConnectorConnection {
 	 * relay that has been silent too long.
 	 */
 	private checkHeartbeat(): void {
-		const now = Date.now();
+		const now = this.clock.now();
 		const limit = this.welcomed ? MISSED_HEARTBEATS * this.limits.heartbeat : HELLO_TIMEOUT;
 		if (now - this.lastHeard >= limit) return this.close(CLOSE_CODE.GOING_AWAY, "The relay stopped answering");
 		if (!this.welcomed || now - this.lastPing < this.limits.heartbeat || this.socket.readyState !== WebSocket.OPEN) return;

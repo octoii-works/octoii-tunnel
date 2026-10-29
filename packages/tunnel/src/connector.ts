@@ -13,13 +13,14 @@ import {
 	type FrameType,
 	isCredential,
 	isDeviceId,
+	isSecurePath,
 	parseRelayOrigin,
-	SECURE_PATH,
 	deviceAddress,
 } from "./protocol/index.ts";
 import { reconnectDelay, STABLE_CONNECTION } from "./backoff.ts";
 import { ConnectorConnection } from "./connection.ts";
 import type { Device } from "./device.ts";
+import { type Platform, randomFraction, repeat } from "./platform.ts";
 import { type Handler, ServedHttpStream } from "./http-stream.ts";
 import { ServedWebSocketStream, type TunnelSocket, type WebSocketHandler } from "./websocket-stream.ts";
 import type { SecureChannel } from "./secure/channel.ts";
@@ -43,6 +44,8 @@ export type ConnectorOptions = {
 	readonly store?: PairingStore;
 	/** Hears about failures the connector recovers from or stops on. */
 	readonly onError?: (error: Error) => void;
+	/** The clock, timers and randomness the connector runs on, such as `webPlatform` from `/web`. */
+	readonly platform: Platform;
 };
 
 /** Starts a device's connector. */
@@ -60,7 +63,7 @@ export class Connector {
 	private readonly url: string;
 	private readonly address: string;
 	private readonly streams = new Map<number, ServedHttpStream | ServedWebSocketStream>();
-	private readonly offers = new PairingOffers();
+	private readonly offers: PairingOffers;
 	private readonly channelListeners = new Set<(channel: SecureChannel) => void>();
 	/** The secure channels open now, so forgetting a visitor closes its own. */
 	private readonly channels = new Set<SecureChannel>();
@@ -68,8 +71,8 @@ export class Connector {
 	private connectedAt = 0;
 	private attempt = 0;
 	private stopped = false;
-	private reconnect: ReturnType<typeof setTimeout> | undefined;
-	private sweep: ReturnType<typeof setInterval> | undefined;
+	private cancelReconnect: (() => void) | undefined;
+	private stopSweep: (() => void) | undefined;
 	private settleReady: { resolve: () => void; reject: (error: Error) => void } | undefined;
 	private settleClosed: () => void = () => undefined;
 
@@ -79,6 +82,7 @@ export class Connector {
 		if (!isDeviceId(deviceId) || !isCredential(credential) || address !== deviceAddress(relay, deviceId)) throw new Error("Not a device of this relay");
 		this.options = options;
 		this.address = address;
+		this.offers = new PairingOffers(options.platform);
 		this.url = `${relay.scheme === "https" ? "wss" : "ws"}://${relay.host}${connectPath(deviceId)}`;
 		this.ready = new Promise((resolve, reject) => {
 			this.settleReady = { resolve, reject };
@@ -92,7 +96,7 @@ export class Connector {
 	/** A pairing offer to show a visitor, usually as a QR code; it works once, for five minutes. */
 	async offerPairing(): Promise<PairingOffer> {
 		const store = this.requireStore();
-		return this.offers.create(this.address, (await staticKeyOf(store)).publicKey);
+		return this.offers.create(this.address, (await staticKeyOf(store, this.options.platform.randomBytes)).publicKey);
 	}
 
 	/** Calls `listener` with each secure channel a paired visitor opens; returns what stops it. */
@@ -121,9 +125,9 @@ export class Connector {
 
 	private connect(): void {
 		if (this.stopped) return;
-		this.connection = new ConnectorConnection(this.url, this.options.device.credential, {
+		this.connection = new ConnectorConnection(this.url, this.options.device.credential, this.options.platform.clock, {
 			welcomed: () => {
-				this.connectedAt = Date.now();
+				this.connectedAt = this.options.platform.clock.now();
 				this.settleReady?.resolve();
 				this.settleReady = undefined;
 			},
@@ -141,9 +145,13 @@ export class Connector {
 			if (code !== CLOSE_CODE.NORMAL) this.report(new Error(`The relay closed the connector for good (${code})`));
 			return this.stop();
 		}
-		if (this.connectedAt !== 0 && Date.now() - this.connectedAt >= STABLE_CONNECTION) this.attempt = 0;
+		const { clock, randomBytes } = this.options.platform;
+		if (this.connectedAt !== 0 && clock.now() - this.connectedAt >= STABLE_CONNECTION) this.attempt = 0;
 		this.connectedAt = 0;
-		this.reconnect = setTimeout(() => this.connect(), reconnectDelay(this.attempt++));
+		this.cancelReconnect = clock.setTimer(
+			() => this.connect(),
+			reconnectDelay(this.attempt++, () => randomFraction(randomBytes)),
+		);
 	}
 
 	private receive(frame: Frame): void {
@@ -168,25 +176,28 @@ export class Connector {
 		return {
 			limits: connection.limits,
 			address: this.address,
+			now: () => this.options.platform.clock.now(),
 			handler: this.options.handler,
-			websocket: (request: Request, accept: (protocol?: string) => TunnelSocket) => this.websocket(request, accept),
+			websocket: (path: string, request: Request, accept: (protocol?: string) => TunnelSocket) => this.websocket(path, request, accept),
 			send: (type: FrameType, stream: number, payload?: Uint8Array) => connection.send(type, stream, payload),
 			done: (stream: ServedHttpStream | ServedWebSocketStream) => {
 				this.streams.delete(stream.id);
-				if (![...this.streams.values()].some((candidate) => candidate instanceof ServedHttpStream)) this.stopSweep();
+				if (![...this.streams.values()].some((candidate) => candidate instanceof ServedHttpStream)) this.endSweep();
 			},
 		};
 	}
 
 	/** A visitor's WebSocket: the secure path runs a handshake, any other goes to the service's handler. */
-	private websocket(request: Request, accept: (protocol?: string) => TunnelSocket): void | Response | Promise<void | Response> {
-		if (new URL(request.url).pathname !== SECURE_PATH) return this.options.websocket?.(request, accept) ?? new Response(null, { status: 501 });
+	private websocket(path: string, request: Request, accept: (protocol?: string) => TunnelSocket): void | Response | Promise<void | Response> {
+		if (!isSecurePath(path)) return this.options.websocket?.(request, accept) ?? new Response(null, { status: 501 });
 		const store = this.options.store;
 		if (store === undefined) return new Response(null, { status: 501 });
-		return staticKeyOf(store).then((key) => {
+		const { platform } = this.options;
+		return staticKeyOf(store, platform.randomBytes).then((key) => {
 			respond(accept(), {
 				key,
 				store,
+				platform,
 				offers: this.offers,
 				address: this.address,
 				handler: this.options.handler,
@@ -215,25 +226,31 @@ export class Connector {
 
 	/** Resets idle HTTP streams, checking every quarter of `streamIdle` while any is open. */
 	private startSweep(connection: ConnectorConnection): void {
-		if (this.sweep !== undefined) return;
+		if (this.stopSweep !== undefined) return;
 		const { streamIdle } = connection.limits;
-		this.sweep = setInterval(() => {
-			const now = Date.now();
-			for (const stream of this.streams.values()) {
-				if (stream instanceof ServedHttpStream && stream.idleAt(now, streamIdle)) stream.reset("idle", "The stream was idle");
-			}
-		}, streamIdle / 4);
+		const { clock } = this.options.platform;
+		this.stopSweep = repeat(
+			clock,
+			() => {
+				const now = clock.now();
+				for (const stream of this.streams.values()) {
+					if (stream instanceof ServedHttpStream && stream.idleAt(now, streamIdle)) stream.reset("idle", "The stream was idle");
+				}
+			},
+			streamIdle / 4,
+		);
 	}
 
-	private stopSweep(): void {
-		clearInterval(this.sweep);
-		this.sweep = undefined;
+	private endSweep(): void {
+		this.stopSweep?.();
+		this.stopSweep = undefined;
 	}
 
 	private stop(): void {
 		this.stopped = true;
-		clearTimeout(this.reconnect);
-		this.stopSweep();
+		this.cancelReconnect?.();
+		this.cancelReconnect = undefined;
+		this.endSweep();
 		this.settleReady?.reject(new Error("The connector stopped before the relay accepted it"));
 		this.settleReady = undefined;
 		this.settleClosed();

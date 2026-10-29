@@ -139,8 +139,8 @@ export class DeviceSessionObject implements DurableObject {
 			},
 			clock: {
 				now: () => Date.now(),
-				after: (delay, callback) => {
-					const timer = setTimeout(callback, delay);
+				setTimer: (callback, delayMs) => {
+					const timer = setTimeout(callback, delayMs);
 					return () => clearTimeout(timer);
 				},
 			},

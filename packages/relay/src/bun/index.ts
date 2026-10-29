@@ -24,8 +24,8 @@ type Entry = { readonly session: DeviceSession; readonly sockets: Set<BunSession
 
 const CLOCK: Clock = {
 	now: () => Date.now(),
-	after: (delay, callback) => {
-		const timer = setTimeout(callback, delay);
+	setTimer: (callback, delayMs) => {
+		const timer = setTimeout(callback, delayMs);
 		return () => clearTimeout(timer);
 	},
 };

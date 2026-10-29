@@ -71,7 +71,7 @@ export class DeviceSession {
 			limits: this.limits,
 			send: (type, stream, payload) => this.send(type, stream, payload),
 			now: () => this.host.clock.now(),
-			after: (delay, callback) => this.host.clock.after(delay, callback),
+			setTimer: (callback, delayMs) => this.host.clock.setTimer(callback, delayMs),
 			done: (stream: Stream) => this.streamDone(stream),
 		};
 	}
@@ -124,7 +124,7 @@ export class DeviceSession {
 			else socket.close(1011, "The stream ended");
 			return;
 		}
-		const cancelTimeout = this.host.clock.after(HELLO_TIMEOUT, () => this.close(socket, CLOSE_CODE.HELLO_TIMEOUT, "No hello in time"));
+		const cancelTimeout = this.host.clock.setTimer(() => this.close(socket, CLOSE_CODE.HELLO_TIMEOUT, "No hello in time"), HELLO_TIMEOUT);
 		this.pending.set(socket, { cancelTimeout, authenticating: false });
 	}
 
@@ -333,14 +333,14 @@ export class DeviceSession {
 	/** Checks for idle HTTP streams every quarter of `streamIdle` while any is open; WebSocket streams have no idle limit. */
 	private startSweep(): void {
 		if (this.stopSweep !== undefined) return;
-		this.stopSweep = this.host.clock.after(this.limits.streamIdle / 4, () => {
+		this.stopSweep = this.host.clock.setTimer(() => {
 			this.stopSweep = undefined;
 			const now = this.host.clock.now();
 			for (const stream of this.streams.values()) {
 				if (stream instanceof HttpStream && stream.idleAt(now, this.limits.streamIdle)) stream.reset("idle", "The stream was idle");
 			}
 			if ([...this.streams.values()].some((stream) => stream instanceof HttpStream)) this.startSweep();
-		});
+		}, this.limits.streamIdle / 4);
 	}
 
 	private stopSweeping(): void {

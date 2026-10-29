@@ -14,6 +14,7 @@ import {
 	PONG,
 } from "@octoii-works/tunnel/protocol";
 import { DeviceSession, type SessionSocket, type SocketAttachment } from "../src/index.ts";
+import { webPlatform } from "@octoii-works/tunnel/web";
 
 const ORIGIN = "https://relay.test";
 
@@ -51,8 +52,8 @@ class FakeSocket implements SessionSocket {
 
 /** A session on a fake host whose clock moves only when told. */
 function fakeSession(options: { live?: FakeSocket[]; authorize?: () => Promise<{ allowed: true }> } = {}) {
-	const deviceId = newDeviceId();
-	const credential = newCredential();
+	const deviceId = newDeviceId(webPlatform.randomBytes);
+	const credential = newCredential(webPlatform.randomBytes);
 	let record: { id: string; name: string; credentialHash: string } | undefined = { id: deviceId, name: "", credentialHash: hashCredential(credential) };
 	let now = 1_000_000;
 	const timers: { at: number; callback: () => void }[] = [];
@@ -63,8 +64,8 @@ function fakeSession(options: { live?: FakeSocket[]; authorize?: () => Promise<{
 			sockets: { live: () => options.live ?? [], lastHeartbeat: () => undefined },
 			clock: {
 				now: () => now,
-				after: (delay, callback) => {
-					const timer = { at: now + delay, callback };
+				setTimer: (callback, delayMs) => {
+					const timer = { at: now + delayMs, callback };
 					timers.push(timer);
 					return () => timers.splice(timers.indexOf(timer), 1);
 				},
@@ -96,7 +97,7 @@ describe("device sessions", () => {
 		const good = await connect();
 		expect(good.frameTypes()).toEqual([FRAME_TYPE.WELCOME]);
 		expect(good.attachment()).toMatchObject({ role: "connector", authenticated: true, nextStream: 1 });
-		const bad = await connect(newCredential());
+		const bad = await connect(newCredential(webPlatform.randomBytes));
 		expect(bad.closedWith).toBe(CLOSE_CODE.UNAUTHORIZED);
 		expect(good.closedWith).toBeUndefined();
 	});

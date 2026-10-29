@@ -16,7 +16,7 @@ try {
 	const dependencies = Object.fromEntries(Object.entries(tarballs).map(([name, path]) => [name, `file:${path}`]));
 	await Bun.write(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module", dependencies, overrides: dependencies }));
 	await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"], consumer);
-	const portable = ["@octoii-works/tunnel", "@octoii-works/tunnel/protocol", "@octoii-works/tunnel-relay"];
+	const portable = ["@octoii-works/tunnel", "@octoii-works/tunnel/protocol", "@octoii-works/tunnel/web", "@octoii-works/tunnel-relay"];
 	const script = portable.map((name) => `await import(${JSON.stringify(name)});`).join("\n");
 	await Bun.write(join(consumer, "portable.mjs"), script);
 	await run(["node", "portable.mjs"], consumer);

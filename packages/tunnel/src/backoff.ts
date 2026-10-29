@@ -9,9 +9,10 @@ export const STABLE_CONNECTION = 60_000;
 
 /**
  * The delay before reconnect attempt `attempt`, counting from 0: a random point below a cap that doubles from
- * `FIRST_RECONNECT_DELAY` up to `MAX_RECONNECT_DELAY` (full jitter), so many connectors do not retry in step.
+ * `FIRST_RECONNECT_DELAY` up to `MAX_RECONNECT_DELAY` (full jitter), so many connectors do not retry in step. `random`
+ * gives a number from 0 up to but not including 1.
  */
-export function reconnectDelay(attempt: number, random: () => number = Math.random): number {
+export function reconnectDelay(attempt: number, random: () => number): number {
 	const cap = Math.min(MAX_RECONNECT_DELAY, FIRST_RECONNECT_DELAY * 2 ** Math.min(attempt, 16));
 	return Math.floor(random() * cap);
 }

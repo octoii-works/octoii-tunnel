@@ -8,10 +8,12 @@ import {
 	MemoryPairingStore,
 	openSecureChannel,
 	pairWith,
+	type Platform,
 	registerDevice,
 	removeDevice,
 	type SecureChannel,
 } from "@octoii-works/tunnel";
+import { webPlatform } from "@octoii-works/tunnel/web";
 
 /** The registration token every test relay uses. */
 export const TOKEN = "registration-token-for-tests";
@@ -37,7 +39,7 @@ export function freePort(): number {
 
 /** A connector for the device, stopped when the test ends. */
 export async function startConnector(relay: Running, device: Device, handler: Handler): Promise<Connector> {
-	const connector = connectDevice({ relay: relay.origin, device, handler });
+	const connector = connectDevice({ relay: relay.origin, device, handler, platform: webPlatform });
 	cleanups.push(() => connector.close());
 	await connector.ready;
 	return connector;
@@ -71,6 +73,28 @@ export function nextMessage(socket: WebSocket): Promise<string | Uint8Array> {
 
 export function nextClose(socket: WebSocket): Promise<number> {
 	return new Promise((resolve) => socket.addEventListener("close", (event) => resolve(event.code), { once: true }));
+}
+
+/** How far a test platform's clock runs ahead of the web standards' own. */
+const CLOCK_SHIFT = 1_000_000_000;
+
+/** The web standards' platform with its clock `CLOCK_SHIFT` ahead, counting the timers set and the randomness drawn. */
+function countingPlatform(): { readonly platform: Platform; readonly used: { timers: number; randomBytes: number } } {
+	const used = { timers: 0, randomBytes: 0 };
+	const platform: Platform = {
+		clock: {
+			now: () => webPlatform.clock.now() + CLOCK_SHIFT,
+			setTimer: (callback, delayMs) => {
+				used.timers++;
+				return webPlatform.clock.setTimer(callback, delayMs);
+			},
+		},
+		randomBytes: (length) => {
+			used.randomBytes++;
+			return webPlatform.randomBytes(length);
+		},
+	};
+	return { platform, used };
 }
 
 /** The relay's behavior, on the relays that `start` starts. */
@@ -184,7 +208,12 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const relay = await start();
 				const device = await registerDevice({ relay: relay.origin, token: TOKEN });
 				const first = await startConnector(relay, device, () => new Response("first"));
-				const wrong = connectDevice({ relay: relay.origin, device: { ...device, credential: "A".repeat(43) }, handler: () => new Response("wrong") });
+				const wrong = connectDevice({
+					relay: relay.origin,
+					device: { ...device, credential: "A".repeat(43) },
+					handler: () => new Response("wrong"),
+					platform: webPlatform,
+				});
 				cleanups.push(() => wrong.close());
 				await expect(wrong.ready).rejects.toThrow();
 				expect(await (await visit(relay, device, "/")).text()).toBe("first");
@@ -210,6 +239,7 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const connector = connectDevice({
 					relay: relay.origin,
 					device,
+					platform: webPlatform,
 					handler: () => new Response("plain"),
 					websocket: (_request, accept) => {
 						const socket = accept("chat.v2");
@@ -244,6 +274,7 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const connector = connectDevice({
 					relay: relay.origin,
 					device,
+					platform: webPlatform,
 					handler: () => new Response("plain"),
 					websocket: (_request, accept) => {
 						const socket = accept();
@@ -278,6 +309,7 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 					relay: relay.origin,
 					device: registered,
 					store,
+					platform: webPlatform,
 					handler: async (request) => new Response(`${request.method} ${new URL(request.url).pathname} ${await request.text()}`),
 				});
 				connector.onSecureChannel((channel) => {
@@ -293,8 +325,8 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const relay = await start();
 				const { connector, channels } = await secureDevice(relay);
 				const visitorStore = new MemoryPairingStore();
-				const pairing = await pairWith((await connector.offerPairing()).url, { store: visitorStore, name: "phone" });
-				const channel = await openSecureChannel(pairing, { store: visitorStore });
+				const pairing = await pairWith((await connector.offerPairing()).url, { store: visitorStore, name: "phone", platform: webPlatform });
+				const channel = await openSecureChannel(pairing, { store: visitorStore, platform: webPlatform });
 				cleanups.push(() => channel.close());
 				const reply = new Promise((resolve) => (channel.onmessage = resolve));
 				channel.send("hello over noise 🐙");
@@ -312,11 +344,11 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const relay = await start();
 				const first = await secureDevice(relay);
 				const visitorStore = new MemoryPairingStore();
-				const pairing = await pairWith((await first.connector.offerPairing()).url, { store: visitorStore });
+				const pairing = await pairWith((await first.connector.offerPairing()).url, { store: visitorStore, platform: webPlatform });
 				first.connector.close();
 				await first.connector.closed;
 				await secureDevice(relay, first.store, first.device);
-				const channel = await openSecureChannel(pairing, { store: visitorStore });
+				const channel = await openSecureChannel(pairing, { store: visitorStore, platform: webPlatform });
 				cleanups.push(() => channel.close());
 				expect(await (await channel.fetch("/again")).text()).toBe("GET /again ");
 			});
@@ -325,25 +357,55 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const relay = await start();
 				const { connector } = await secureDevice(relay);
 				const phoneStore = new MemoryPairingStore();
-				const phone = await pairWith((await connector.offerPairing()).url, { store: phoneStore, name: "phone" });
-				await pairWith((await connector.offerPairing()).url, { store: new MemoryPairingStore(), name: "laptop" });
+				const phone = await pairWith((await connector.offerPairing()).url, { store: phoneStore, name: "phone", platform: webPlatform });
+				await pairWith((await connector.offerPairing()).url, { store: new MemoryPairingStore(), name: "laptop", platform: webPlatform });
 				const visitors = await connector.visitors();
 				expect(visitors.map((visitor) => visitor.name)).toEqual(["phone", "laptop"]);
-				const channel = await openSecureChannel(phone, { store: phoneStore });
+				const channel = await openSecureChannel(phone, { store: phoneStore, platform: webPlatform });
 				const closed = new Promise<number>((resolve) => (channel.onclose = resolve));
 				await connector.forgetVisitor(visitors[0]?.publicKey ?? "");
 				expect(await closed).toBe(4401);
 				expect((await connector.visitors()).map((visitor) => visitor.name)).toEqual(["laptop"]);
-				await expect(openSecureChannel(phone, { store: phoneStore })).rejects.toThrow();
+				await expect(openSecureChannel(phone, { store: phoneStore, platform: webPlatform })).rejects.toThrow();
+			});
+
+			test("run the connector and the visitor on the platform each is given, bodies larger than a channel frame included", async () => {
+				const relay = await start();
+				const device = await registerDevice({ relay: relay.origin, token: TOKEN });
+				const onDevice = countingPlatform();
+				const onVisitor = countingPlatform();
+				const connector = connectDevice({
+					relay: relay.origin,
+					device,
+					store: new MemoryPairingStore(),
+					platform: onDevice.platform,
+					handler: async (request) => new Response(await request.text()),
+				});
+				cleanups.push(() => connector.close());
+				await connector.ready;
+				const before = Date.now() + CLOCK_SHIFT;
+				const offer = await connector.offerPairing();
+				expect(offer.expiresAt).toBeGreaterThanOrEqual(before + 5 * 60_000);
+				const visitorStore = new MemoryPairingStore();
+				const pairing = await pairWith(offer.url, { store: visitorStore, platform: onVisitor.platform });
+				expect((await connector.visitors())[0]?.pairedAt).toBeGreaterThanOrEqual(before);
+				const channel = await openSecureChannel(pairing, { store: visitorStore, platform: onVisitor.platform });
+				cleanups.push(() => channel.close());
+				const body = "octoiitunnel ".repeat(20_000);
+				expect(await (await channel.fetch("/echo", { method: "POST", body })).text()).toBe(body);
+				for (const { used } of [onDevice, onVisitor]) {
+					expect(used.timers).toBeGreaterThan(0);
+					expect(used.randomBytes).toBeGreaterThan(0);
+				}
 			});
 
 			test("refuse a visitor that never paired, and a pairing code used twice", async () => {
 				const relay = await start();
 				const { connector } = await secureDevice(relay);
 				const offer = await connector.offerPairing();
-				const pairing = await pairWith(offer.url, { store: new MemoryPairingStore() });
-				await expect(openSecureChannel(pairing, { store: new MemoryPairingStore() })).rejects.toThrow();
-				await expect(pairWith(offer.url, { store: new MemoryPairingStore() })).rejects.toThrow();
+				const pairing = await pairWith(offer.url, { store: new MemoryPairingStore(), platform: webPlatform });
+				await expect(openSecureChannel(pairing, { store: new MemoryPairingStore(), platform: webPlatform })).rejects.toThrow();
+				await expect(pairWith(offer.url, { store: new MemoryPairingStore(), platform: webPlatform })).rejects.toThrow();
 			});
 		});
 	});

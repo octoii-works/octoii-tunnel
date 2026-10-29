@@ -34,6 +34,7 @@ import {
 	ProtocolError,
 	sameSecret,
 } from "../src/protocol/index.ts";
+import { webPlatform } from "../src/web.ts";
 
 describe("frames", () => {
 	test("carry the version, type, stream id and payload length in network order", () => {
@@ -57,18 +58,18 @@ describe("frames", () => {
 describe("formats", () => {
 	test("make device ids and credentials that their checks accept", () => {
 		for (let round = 0; round < 50; round++) {
-			expect(isDeviceId(newDeviceId())).toBe(true);
-			expect(isCredential(newCredential())).toBe(true);
+			expect(isDeviceId(newDeviceId(webPlatform.randomBytes))).toBe(true);
+			expect(isCredential(newCredential(webPlatform.randomBytes))).toBe(true);
 		}
 		expect(isDeviceId("ABCDEFGHIJKLMNOPQRSTUVWXYZ")).toBe(false);
 		expect(isCredential("short")).toBe(false);
 	});
 
 	test("hash credentials and compare secrets", () => {
-		const credential = newCredential();
+		const credential = newCredential(webPlatform.randomBytes);
 		expect(hashCredential(credential)).toMatch(/^[0-9a-f]{64}$/);
 		expect(sameSecret(credential, credential)).toBe(true);
-		expect(sameSecret(credential, newCredential())).toBe(false);
+		expect(sameSecret(credential, newCredential(webPlatform.randomBytes))).toBe(false);
 	});
 
 	test("parse a relay origin without URL and give a device its address", () => {
@@ -83,7 +84,7 @@ describe("formats", () => {
 
 describe("payloads", () => {
 	test("hello and welcome round-trip and refuse what breaks their rules", () => {
-		const hello = { version: 1, credential: newCredential(), connector: "octoiitunnel/1.0.0" };
+		const hello = { version: 1, credential: newCredential(webPlatform.randomBytes), connector: "octoiitunnel/1.0.0" };
 		expect(decodeHello(encodeHello(hello))).toEqual(hello);
 		expect(() => decodeHello(encodeJson({ ...hello, credential: "x" }))).toThrow(ProtocolError);
 		expect(decodeWelcome(encodeWelcome(DEFAULT_LIMITS))).toEqual(DEFAULT_LIMITS);
@@ -158,12 +159,12 @@ describe("headers that cross the relay", () => {
 
 describe("the relay's API", () => {
 	test("matches device paths and checks a registration against its relay", () => {
-		const deviceId = newDeviceId();
+		const deviceId = newDeviceId(webPlatform.randomBytes);
 		expect(matchDevicePath(`/v1/connect/${deviceId}`)).toEqual({ target: "connect", deviceId });
 		expect(matchDevicePath(`/v1/devices/${deviceId}`)).toEqual({ target: "devices", deviceId });
 		expect(matchDevicePath("/v1/agent/x")).toBeUndefined();
 		const relay = parseRelayOrigin("https://octoiitunnel.com");
-		const registration = { deviceId, credential: newCredential(), address: deviceAddress(relay, deviceId) };
+		const registration = { deviceId, credential: newCredential(webPlatform.randomBytes), address: deviceAddress(relay, deviceId) };
 		expect(decodeRegistration(registration, relay)).toEqual(registration);
 		expect(() => decodeRegistration({ ...registration, address: "https://evil.example" }, relay)).toThrow(ProtocolError);
 	});

@@ -2,6 +2,7 @@
  * Pairing offers: a one-time code and the connector's public key in the fragment of the device's address, which a
  * browser never sends, so the relay never learns either.
  */
+import type { Platform } from "../platform.ts";
 import { decodeBase64Url, encodeBase64Url, ProtocolError, sameSecret } from "../protocol/index.ts";
 
 /** How long an offer may be used, in milliseconds. */
@@ -23,11 +24,17 @@ export type ParsedOffer = { readonly address: string; readonly code: string; rea
 export class PairingOffers {
 	private readonly codes = new Map<string, number>();
 	private failures: number[] = [];
+	private readonly platform: Platform;
+
+	/** Offers on `platform`, whose clock times them and whose randomness makes their codes. */
+	constructor(platform: Platform) {
+		this.platform = platform;
+	}
 
 	/** A new offer for the device at `address`, from the connector's public key. */
 	create(address: string, connectorKey: Uint8Array): PairingOffer {
-		const code = encodeBase64Url(crypto.getRandomValues(new Uint8Array(CODE_BYTES)));
-		const expiresAt = Date.now() + OFFER_LIFETIME;
+		const code = encodeBase64Url(this.platform.randomBytes(CODE_BYTES));
+		const expiresAt = this.platform.clock.now() + OFFER_LIFETIME;
 		this.codes.set(code, expiresAt);
 		return { url: `${address}/#${PAIR_PARAMETER}=${code}&${KEY_PARAMETER}=${encodeBase64Url(connectorKey)}`, expiresAt };
 	}
@@ -37,7 +44,7 @@ export class PairingOffers {
 	 * while too many wrong ones came in the last minute.
 	 */
 	redeem(code: string): boolean {
-		const now = Date.now();
+		const now = this.platform.clock.now();
 		this.failures = this.failures.filter((at) => now - at < FAILURE_WINDOW);
 		if (this.failures.length >= MAX_FAILURES) return false;
 		for (const [open, expiresAt] of this.codes) {

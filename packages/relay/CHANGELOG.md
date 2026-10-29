@@ -6,6 +6,7 @@
 
 - The relay is published as `@octoii-works/tunnel-relay`, released with `@octoii-works/tunnel` at the same version, and
   speaks the wire format of its `/protocol` subpath.
+- A host's `Clock` has `setTimer(callback, delayMs)`, the client's shape, where it had `after(delay, callback)`.
 
 ### Changed
 

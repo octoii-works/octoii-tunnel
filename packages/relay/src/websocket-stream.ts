@@ -40,7 +40,8 @@ export type WebSocketLink = {
 	readonly limits: Limits;
 	send(type: FrameType, stream: number, payload?: Uint8Array): void;
 	now(): number;
-	after(delay: number, callback: () => void): () => void;
+	/** Runs `callback` after `delayMs`; returns what cancels it. */
+	setTimer(callback: () => void, delayMs: number): () => void;
 	/** The stream is done; the session forgets it and meters it. */
 	done(stream: WebSocketStream): void;
 };
@@ -115,11 +116,11 @@ export class WebSocketStream {
 		] as const;
 		const open = { kind: "websocket" as const, method: "GET", path: url.pathname + url.search, headers, protocols, remote: { address } };
 		this.link.send(FRAME_TYPE.OPEN, this.id, encodeOpen(open));
-		this.cancelTimeout = this.link.after(HEAD_TIMEOUT, () => {
+		this.cancelTimeout = this.link.setTimer(() => {
 			if (this.answered) return;
 			this.reset("idle", "The device did not answer the WebSocket");
 			this.settle({ failed: "timeout" });
-		});
+		}, HEAD_TIMEOUT);
 	}
 
 	/** The visitor's socket, once the host upgraded the request; messages that came first go out now. */
@@ -230,10 +231,10 @@ export class WebSocketStream {
 	private grantCredit(): void {
 		if (this.ungranted === 0 || this.finished || this.cancelRecheck !== undefined) return;
 		if ((this.socket?.bufferedAmount() ?? 0) > this.link.limits.initialCredit) {
-			this.cancelRecheck = this.link.after(50, () => {
+			this.cancelRecheck = this.link.setTimer(() => {
 				this.cancelRecheck = undefined;
 				this.grantCredit();
-			});
+			}, 50);
 			return;
 		}
 		const amount = this.ungranted;

@@ -50,7 +50,8 @@ export type WebSocketHandler = (request: Request, accept: (protocol?: string) =>
 export type ServedWebSocketLink = {
 	readonly limits: Limits;
 	readonly address: string;
-	readonly websocket: WebSocketHandler;
+	/** Decides on the visitor's WebSocket to `path`, with its query, as a `WebSocketHandler` does. */
+	websocket(path: string, request: Request, accept: (protocol?: string) => TunnelSocket): ReturnType<WebSocketHandler>;
 	send(type: FrameType, stream: number, payload?: Uint8Array): void;
 	done(stream: ServedWebSocketStream): void;
 };
@@ -107,7 +108,7 @@ export class ServedWebSocketStream {
 
 	/** Asks the handler to accept or refuse the WebSocket. */
 	start(): void {
-		void this.decide(this.link.websocket);
+		void this.decide();
 	}
 
 	/** Handles a frame the relay sent on this stream; a frame that breaks the stream's rules resets it. */
@@ -144,11 +145,11 @@ export class ServedWebSocketStream {
 		this.finish(INTERNAL_ERROR, error.message);
 	}
 
-	private async decide(handler: WebSocketHandler): Promise<void> {
+	private async decide(): Promise<void> {
 		const { path, headers } = this.open;
 		const request = new Request(this.link.address + path, { method: "GET", headers: toHeaders(headers) });
 		try {
-			const refusal = await handler(request, (protocol) => this.accept(protocol));
+			const refusal = await this.link.websocket(path, request, (protocol) => this.accept(protocol));
 			if (this.socket === undefined) this.refuse(refusal instanceof Response && isIntegerBetween(refusal.status, 400, 599) ? refusal.status : 403);
 		} catch {
 			if (this.socket === undefined) this.refuse(500);

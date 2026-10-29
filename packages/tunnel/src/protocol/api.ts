@@ -7,6 +7,11 @@ import { isJsonObject } from "./json.ts";
 export const REGISTRATION_PATH = "/v1/devices";
 /** The path on a device's address that a secure channel opens on; the connector keeps it from the service. */
 export const SECURE_PATH = "/.octoiitunnel/secure";
+
+/** Whether a request's `path`, which may carry a query, is `SECURE_PATH`. */
+export function isSecurePath(path: string): boolean {
+	return path.split("?")[0] === SECURE_PATH;
+}
 /** The largest registration body the relay reads. */
 export const MAX_REGISTRATION_BYTES = 4096;
 /** The longest name a device may register with. */

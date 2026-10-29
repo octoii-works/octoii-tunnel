@@ -14,7 +14,7 @@ import {
 	type Open,
 	ProtocolError,
 	type ResetCode,
-	SECURE_PATH,
+	isSecurePath,
 	SendCredit,
 	sendBody,
 	toHeaders,
@@ -28,6 +28,8 @@ export type ServedStreamLink = {
 	readonly limits: Limits;
 	/** The device's address, which request URLs start with. */
 	readonly address: string;
+	/** The time, in milliseconds since the epoch, on the connector's clock. */
+	now(): number;
 	readonly handler: Handler;
 	/** Sends a frame on the connection; throws when it cannot. */
 	send(type: FrameType, stream: number, payload?: Uint8Array): void;
@@ -46,7 +48,7 @@ export class ServedHttpStream {
 	private readonly credit: SendCredit;
 	private readonly body: IncomingBody;
 	private readonly abort = new AbortController();
-	private lastFrameAt = Date.now();
+	private lastFrameAt: number;
 	private requestEnded = false;
 	private finished = false;
 
@@ -54,6 +56,7 @@ export class ServedHttpStream {
 		this.id = id;
 		this.open = open;
 		this.link = link;
+		this.lastFrameAt = link.now();
 		this.credit = new SendCredit(link.limits.initialCredit);
 		this.body = new IncomingBody(link.limits.initialCredit, {
 			credit: (amount) => this.sendIfOpen(FRAME_TYPE.CREDIT, encodeCredit(amount)),
@@ -70,7 +73,7 @@ export class ServedHttpStream {
 
 	/** Handles a frame the relay sent on this stream; a frame that breaks the stream's rules resets it. */
 	receive(frame: Frame): void {
-		this.lastFrameAt = Date.now();
+		this.lastFrameAt = this.link.now();
 		try {
 			this.handle(frame);
 		} catch (error) {
@@ -142,7 +145,7 @@ export class ServedHttpStream {
 
 	private respond(): Response | Promise<Response> {
 		const { method, path, headers } = this.open;
-		if (path.split("?")[0] === SECURE_PATH) return new Response("Secure channels are not supported yet", { status: 501 });
+		if (isSecurePath(path)) return new Response("Secure channels are not supported yet", { status: 501 });
 		const init: RequestInit & { duplex?: "half" } = { method, headers: toHeaders(headers), signal: this.abort.signal };
 		if (!BODILESS_METHODS.has(method)) Object.assign(init, { body: this.body.stream, duplex: "half" });
 		return this.link.handler(new Request(this.link.address + path, init));
@@ -150,7 +153,7 @@ export class ServedHttpStream {
 
 	private sendData(bytes: Uint8Array): void {
 		this.link.send(FRAME_TYPE.DATA, this.id, bytes);
-		this.lastFrameAt = Date.now();
+		this.lastFrameAt = this.link.now();
 	}
 
 	private sendIfOpen(type: FrameType, payload: Uint8Array): void {

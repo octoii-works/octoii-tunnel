@@ -6,9 +6,16 @@
 
 - The client is published as `@octoii-works/tunnel`, and the wire format, which was `@octoii/tunnel-protocol`, is its
   `/protocol` subpath, released with it; the protocol imports nothing of the client.
+- The client reads no clock, timer or randomness of its own: `connectDevice()`, `pairWith()` and `openSecureChannel()`
+  take a `platform`, a `Clock` (`now`, `setTimer`) and `randomBytes`. `reconnectDelay()` takes its `random` function,
+  and the protocol's `newDeviceId()` and `newCredential()` their `randomBytes`.
 
 ### Added
 
+- `/web`: `webPlatform`, the web standards' clock, timers and secure randomness.
+- `pairingOf()`: a visitor reads back its pairing with a device.
+- `isSecurePath()` in the protocol, which the connector checks without a `URL`.
+- A portability scan of the client's and the protocol's sources against what Hermes refuses or lacks.
 - `registerDevice()` and `removeDevice()`.
 - `connectDevice()`, which returns a `Connector`: one connector connection with heartbeats it sends every interval, reconnects with exponential backoff and full jitter, and HTTP streams served through a handler under flow control.
 - Visitor WebSockets: `connectDevice({ websocket })` accepts or refuses each one, and the service talks over a `TunnelSocket`; close codes pass both ways, and messages larger than a frame or than the credit are split and put back together.

@@ -64,8 +64,8 @@ export interface SessionSockets {
 /** The time, and timers that only need to fire while the session is awake. */
 export interface Clock {
 	now(): number;
-	/** Calls `callback` after `delay` milliseconds; returns what cancels it. */
-	after(delay: number, callback: () => void): () => void;
+	/** Runs `callback` after `delayMs`, never synchronously; returns what cancels it. */
+	setTimer(callback: () => void, delayMs: number): () => void;
 }
 
 /** What a host gives one device's session. */

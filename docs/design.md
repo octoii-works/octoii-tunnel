@@ -40,7 +40,8 @@ the rest around it through two hooks; none of it is here, and the core does not 
   change, a sleep, a relay deploy, or the relay closing its connection to restart or move the session (code 1012). A
   visitor whose stream was cut gets a clear error, never a hang. A dropped secure channel is reopened by the visitor
   library.
-- **Portable.** The protocol and the client run on any JavaScript runtime with web standards, Hermes included. The
+- **Portable.** The protocol and the client run on any JavaScript runtime with web standards, Hermes and workerd
+  included. The client reads no clock, timer or randomness of its own: its caller passes them as a `Platform`. The
   relay core runs on any host that gives it the capabilities below; the repository ships adapters for two.
 - **Small and checkable.** The core stays small enough to read in an afternoon: that is how users verify that the
   relay only forwards and that secure mode is what it says.
@@ -57,13 +58,23 @@ the rest around it through two hooks; none of it is here, and the core does not 
 | Entry | What it is |
 | --- | --- |
 | `@octoii-works/tunnel/protocol` | Frame encoding and decoding, payload codecs that validate, limits, close and reset codes, flow control (`SendCredit`, `IncomingBody`), the device id and credential formats, and UTF-8 and base64url written out so they run where `TextDecoder` and `btoa` do not. No I/O, and nothing of the client |
-| `@octoii-works/tunnel` | The client. On the device: `registerDevice()`, `removeDevice()`, and `connectDevice()`, which returns a `Connector` that keeps the connector connection and serves streams through a handler, offers pairings and accepts secure channels. On the visitor: `pairWith()` and `openSecureChannel()` |
+| `@octoii-works/tunnel` | The client. On the device: `registerDevice()`, `removeDevice()`, and `connectDevice()`, which returns a `Connector` that keeps the connector connection and serves streams through a handler, offers pairings and accepts secure channels. On the visitor: `pairWith()`, `openSecureChannel()` and `pairingOf()`. The `Platform` type it runs on |
+| `@octoii-works/tunnel/web` | `webPlatform`: the clock, timers and secure randomness of web standards (`Date.now`, `setTimeout`, `crypto.getRandomValues`) |
 | `@octoii-works/tunnel/bun` | A handler that forwards to a local port, a file-backed `PairingStore`, and the `octoiitunnel` command |
 | `@octoii-works/tunnel-relay` | `createRelay()`, the router and the device session, and two adapters: `/worker` for hosts with the Workers and Durable Object APIs, and `/bun` for a single Bun process with SQLite |
 
 The protocol is a subpath of the client's package, so the client and its wire format are one release, and the relay
 takes the subpath alone. Each root entry uses web standards only, and platform code lives in subpaths. Both packages
 are MIT, share one version and are released together, the client first.
+
+### The client's platform
+
+The client's root entry and the protocol read no host clock, timer or random number. Every entry that needs them takes
+a `Platform`: a `Clock` (`now()`, and `setTimer(callback, delayMs)`, which returns what cancels it) and `randomBytes`, a
+secure source of random bytes. The connector's heartbeats, reconnect backoff and stream idle checks, the handshake's
+deadline, pairing offers and their codes, and every static and ephemeral key come from it. `/web` gives the web
+standards' own; an engine without `crypto.getRandomValues`, such as Hermes, passes randomness of its own, and a test
+passes a clock it moves.
 
 ## Relay
 
@@ -88,7 +99,7 @@ A host gives each device session three capabilities, and routes every request fo
 | --- | --- |
 | `DeviceRecords` | Read, create and delete this device's record: its id, name and credential hash |
 | `SessionSockets` | Accept a WebSocket, keep a small attachment on each one, list the live ones after the session resumes, and tell when each last sent a heartbeat |
-| `Clock` | The time, and timers that only need to fire while the session is awake (the hello deadline and stream idle deadlines) |
+| `Clock` | The time, and timers that only need to fire while the session is awake (the hello deadline and stream idle deadlines), in the shape of the client's |
 
 These are plain interfaces, not a plugin system.
 
@@ -140,7 +151,7 @@ does not include one.
 
 ## Connector
 
-`connectDevice({ relay, device, handler })` returns a `Connector`. Inside:
+`connectDevice({ relay, device, handler, platform })` returns a `Connector`. Inside:
 
 - **Reconnecting.** A loop that opens connector connections, with exponential backoff and full jitter between
   attempts, and stops on the close codes that say to stop.
@@ -173,8 +184,11 @@ The full design, with what a relay operator can and cannot do, is in [security.m
 ## Testing
 
 - Unit tests: frame and payload codecs (and refusing malformed input), flow control, UTF-8 and base64url, the
-  reconnect policy, the Noise handshake against the specification's test vectors, pairing codes (single use, expiry),
-  and channel framing.
+  reconnect policy, the Noise handshake against the specification's test vectors, pairing codes (single use, expiry)
+  on a clock the test moves, and channel framing.
+- A portability scan of the client's and the protocol's sources, `/web` aside: no platform module, no package but the
+  `@noble` libraries, nothing Hermes refuses or lacks, no host clock, timer, randomness or `URL`, and a protocol that
+  imports nothing of the client.
 - One behavioral suite, run against both adapters (`/bun` directly, `/worker` on a local workerd):
   - register a device, connect a connector, do an HTTP round trip, and stream a body larger than the flow-control
     window both ways;
@@ -184,6 +198,7 @@ The full design, with what a relay operator can and cannot do, is in [security.m
   - suspend and wake an idle session (where the host can), then use the device again;
   - ask for an offline device and get 502; be refused with a wrong credential;
   - pair a visitor, open a secure channel, exchange messages and a fetch, reopen it after the connector reconnects;
+    run the connector and the visitor on platforms of their own;
     refuse an unpaired key, a reused pairing code and an expired one; check that nothing the relay forwarded contains
     the plaintext.
 

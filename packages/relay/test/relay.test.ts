@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectDevice, registerDevice } from "@octoii-works/tunnel";
+import { webPlatform } from "@octoii-works/tunnel/web";
 import { serveRelay } from "../src/bun/index.ts";
 import { cleanups, freePort, relaySuite, type Running, TOKEN, visit } from "./suite.ts";
 
@@ -20,7 +21,7 @@ test("reconnect after the relay restarts, and keep their device across restarts 
 	const database = join(mkdtempSync(join(tmpdir(), "octoiitunnel-")), "relay.sqlite");
 	const relay = startRelay(database);
 	const device = await registerDevice({ relay: relay.origin, token: TOKEN });
-	const connector = connectDevice({ relay: relay.origin, device, handler: () => new Response("back") });
+	const connector = connectDevice({ relay: relay.origin, device, handler: () => new Response("back"), platform: webPlatform });
 	cleanups.push(() => connector.close());
 	await connector.ready;
 	await relay.close();
