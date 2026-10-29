@@ -20,7 +20,7 @@ import {
 	PONG,
 	PROTOCOL_VERSION,
 	ProtocolError,
-} from "@octoii/tunnel-protocol";
+} from "./protocol/index.ts";
 
 /** What a connection tells its connector. */
 export type ConnectionEvents = {

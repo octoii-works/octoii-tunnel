@@ -39,10 +39,7 @@ try {
 						outDir: join(directory, "dist"),
 						types: pass.types,
 						lib: pass.lib,
-						paths: {
-							"@octoii/tunnel-protocol": [join(ROOT, "packages/protocol/dist/index.d.ts")],
-							"@octoii/tunnel": [join(ROOT, "packages/client/dist/index.d.ts")],
-						},
+						paths: { "@octoii-works/tunnel/protocol": [join(ROOT, "packages/tunnel/dist/protocol/index.d.ts")] },
 					},
 					include: [join(directory, pass.include)],
 					exclude: pass.exclude.map((pattern) => join(directory, pattern)),

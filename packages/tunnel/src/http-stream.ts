@@ -18,7 +18,7 @@ import {
 	SendCredit,
 	sendBody,
 	toHeaders,
-} from "@octoii/tunnel-protocol";
+} from "./protocol/index.ts";
 
 /** What the service gives the connector: a `Response` for each visitor's `Request`. */
 export type Handler = (request: Request) => Response | Promise<Response>;

@@ -2,7 +2,7 @@
 
 Version 1. The wire format between the connector and the relay, and the relay's HTTP API. Visitors in plain mode speak
 ordinary HTTP and WebSocket to the device's address; the secure channel inside a stream is in
-[security.md](security.md). `@octoii/tunnel-protocol` implements this document.
+[security.md](security.md). `@octoii-works/tunnel/protocol` implements this document.
 
 Numbers are big-endian. Text is UTF-8. JSON payloads are objects; a receiver refuses a payload that is not valid JSON,
 lacks a required field, or has a field of the wrong type.

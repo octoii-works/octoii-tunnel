@@ -24,7 +24,7 @@ import {
 	PROTOCOL_VERSION,
 	ProtocolError,
 	sameSecret,
-} from "@octoii/tunnel-protocol";
+} from "@octoii-works/tunnel/protocol";
 import { authorize, errorResponse, meter, refusal } from "./hooks.ts";
 import type { RelayOptions, RequestContext, SessionHost, SessionSocket } from "./host.ts";
 import { HttpStream } from "./http-stream.ts";

@@ -10,7 +10,7 @@
  * export const DeviceObject = relay.DeviceObject;
  * ```
  */
-import { PING, PONG, sameSecret } from "@octoii/tunnel-protocol";
+import { PING, PONG, sameSecret } from "@octoii-works/tunnel/protocol";
 import { errorResponse } from "../hooks.ts";
 import type { DeviceRecord, RelayOptions, SessionHost, SessionSocket, SocketAttachment } from "../host.ts";
 import { createRelay } from "../router.ts";

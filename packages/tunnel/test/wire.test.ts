@@ -33,7 +33,7 @@ import {
 	parseRelayOrigin,
 	ProtocolError,
 	sameSecret,
-} from "../src/index.ts";
+} from "../src/protocol/index.ts";
 
 describe("frames", () => {
 	test("carry the version, type, stream id and payload length in network order", () => {

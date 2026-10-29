@@ -11,7 +11,7 @@ import {
 	registerDevice,
 	removeDevice,
 	type SecureChannel,
-} from "@octoii/tunnel";
+} from "@octoii-works/tunnel";
 
 /** The registration token every test relay uses. */
 export const TOKEN = "registration-token-for-tests";

@@ -1,5 +1,5 @@
 {
-  "name": "@octoii/tunnel-relay",
+  "name": "@octoii-works/tunnel-relay",
   "version": "0.1.0-preview.1",
   "description": "The octoiitunnel relay: its core, and hosts for the Workers and Durable Object APIs and for one Bun process",
   "type": "module",
@@ -26,11 +26,10 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@octoii/tunnel-protocol": "workspace:*"
+    "@octoii-works/tunnel": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261001.1",
-    "@octoii/tunnel": "workspace:*",
     "miniflare": "4.20260730.0"
   }
 }

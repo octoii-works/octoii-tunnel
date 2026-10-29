@@ -16,7 +16,7 @@ import {
 	parseRelayOrigin,
 	SECURE_PATH,
 	deviceAddress,
-} from "@octoii/tunnel-protocol";
+} from "./protocol/index.ts";
 import { reconnectDelay, STABLE_CONNECTION } from "./backoff.ts";
 import { ConnectorConnection } from "./connection.ts";
 import type { Device } from "./device.ts";

@@ -2,7 +2,7 @@
  * The Noise XX handshake of a secure channel, the visitor the initiator, with prologue `octoiitunnel/1`. The visitor
  * proves a pairing code or a paired key in its last message; the connector answers `ready` once it accepts.
  */
-import { decodeBase64Url, decodeJsonObject, encodeBase64Url, encodeJson, encodeUtf8, isStringUpTo, SECURE_PATH } from "@octoii/tunnel-protocol";
+import { decodeBase64Url, decodeJsonObject, encodeBase64Url, encodeJson, encodeUtf8, isStringUpTo, SECURE_PATH } from "../protocol/index.ts";
 import { SecureChannel, VisitorChannel } from "./channel.ts";
 import { type KeyPair, XXHandshake } from "./noise.ts";
 import type { PairingOffers } from "./offers.ts";

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectDevice, registerDevice } from "@octoii/tunnel";
+import { connectDevice, registerDevice } from "@octoii-works/tunnel";
 import { serveRelay } from "../src/bun/index.ts";
 import { cleanups, freePort, relaySuite, type Running, TOKEN, visit } from "./suite.ts";
 

@@ -1,6 +1,6 @@
 # octoiitunnel design
 
-octoiitunnel lets a phone, a browser or any HTTP client reach a service on a machine behind NAT, such as the OctoiiCode server
+octoiitunnel lets a phone, a browser or any HTTP client reach a service on a machine behind NAT, such as the Octoii server
 on a user's PC, without opening a port. The machine connects out to a relay and keeps the connection open; visitors
 reach the machine at its own address on the relay, and the relay forwards their requests over that connection.
 Visitors the machine has paired with can open a secure channel to it: end to end encrypted, so the relay forwards only
@@ -48,19 +48,22 @@ the rest around it through two hooks; none of it is here, and the core does not 
 ## Packages
 
 ```text
-@octoii/tunnel-protocol   the wire format: frames, payloads, limits, flow control, formats
+@octoii-works/tunnel/protocol   the wire format: frames, payloads, limits, flow control, formats
         ▲                    ▲
-@octoii/tunnel   @octoii/tunnel-relay
- (the client)              (the core; /worker and /bun adapters)
+@octoii-works/tunnel     @octoii-works/tunnel-relay
+ (the client)             (the core; /worker and /bun adapters)
 ```
 
-| Package | What it is |
+| Entry | What it is |
 | --- | --- |
-| `@octoii/tunnel-protocol` | Frame encoding and decoding, payload codecs that validate, limits, close and reset codes, flow control (`SendCredit`, `IncomingBody`), the device id and credential formats, and UTF-8 and base64url written out so they run where `TextDecoder` and `btoa` do not. No I/O |
-| `@octoii/tunnel` | The client. On the device: `registerDevice()`, `removeDevice()`, and `connectDevice()`, which returns a `Connector` that keeps the connector connection and serves streams through a handler, offers pairings and accepts secure channels. On the visitor: `pairWith()` and `openSecureChannel()`. `/bun`: a handler that forwards to a local port, a file-backed `PairingStore`, and the `octoiitunnel` command |
-| `@octoii/tunnel-relay` | `createRelay()`, the router and the device session, and two adapters: `/worker` for hosts with the Workers and Durable Object APIs, and `/bun` for a single Bun process with SQLite |
+| `@octoii-works/tunnel/protocol` | Frame encoding and decoding, payload codecs that validate, limits, close and reset codes, flow control (`SendCredit`, `IncomingBody`), the device id and credential formats, and UTF-8 and base64url written out so they run where `TextDecoder` and `btoa` do not. No I/O, and nothing of the client |
+| `@octoii-works/tunnel` | The client. On the device: `registerDevice()`, `removeDevice()`, and `connectDevice()`, which returns a `Connector` that keeps the connector connection and serves streams through a handler, offers pairings and accepts secure channels. On the visitor: `pairWith()` and `openSecureChannel()` |
+| `@octoii-works/tunnel/bun` | A handler that forwards to a local port, a file-backed `PairingStore`, and the `octoiitunnel` command |
+| `@octoii-works/tunnel-relay` | `createRelay()`, the router and the device session, and two adapters: `/worker` for hosts with the Workers and Durable Object APIs, and `/bun` for a single Bun process with SQLite |
 
-Each package's root entry uses web standards only. Platform code lives in subpaths. All three are MIT.
+The protocol is a subpath of the client's package, so the client and its wire format are one release, and the relay
+takes the subpath alone. Each root entry uses web standards only, and platform code lives in subpaths. Both packages
+are MIT, share one version and are released together, the client first.
 
 ## Relay
 

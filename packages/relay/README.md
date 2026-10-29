@@ -1,14 +1,15 @@
-# @octoii/tunnel-relay
+# @octoii-works/tunnel-relay
 
-The octoiitunnel relay: the router, the device session, and hosts that run them.
+The octoiitunnel relay: the router, the device session, and hosts that run them. It speaks the wire format of
+`@octoii-works/tunnel/protocol`, and is released with `@octoii-works/tunnel` at the same version.
 
-- `@octoii/tunnel-relay`: `createRelay()` and `DeviceSession`, with the interfaces a host implements
+- `@octoii-works/tunnel-relay`: `createRelay()` and `DeviceSession`, with the interfaces a host implements
   (`RelayHost`, `SessionHost`).
-- `@octoii/tunnel-relay/worker`: hosts with the Workers and Durable Object APIs.
-- `@octoii/tunnel-relay/bun`: one Bun process, device records in SQLite.
+- `@octoii-works/tunnel-relay/worker`: hosts with the Workers and Durable Object APIs.
+- `@octoii-works/tunnel-relay/bun`: one Bun process, device records in SQLite.
 
 ```ts
-import { serveRelay } from "@octoii/tunnel-relay/bun";
+import { serveRelay } from "@octoii-works/tunnel-relay/bun";
 
 const relay = serveRelay({ origin: "https://relay.example.com", registrationToken, database: "relay.sqlite", port: 8787 });
 ```
@@ -18,7 +19,7 @@ A public relay needs a wildcard domain (`*.relay.example.com`) and the bare doma
 On a host with the Workers and Durable Object APIs, the entry exports the Worker and the object class, with any hooks:
 
 ```ts
-import { defineRelay } from "@octoii/tunnel-relay/worker";
+import { defineRelay } from "@octoii-works/tunnel-relay/worker";
 
 const relay = defineRelay({ authorize, meter });
 export default relay.worker;

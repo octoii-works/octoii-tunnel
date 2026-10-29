@@ -16,16 +16,16 @@ try {
 	const dependencies = Object.fromEntries(Object.entries(tarballs).map(([name, path]) => [name, `file:${path}`]));
 	await Bun.write(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module", dependencies, overrides: dependencies }));
 	await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"], consumer);
-	const portable = ["@octoii/tunnel-protocol", "@octoii/tunnel", "@octoii/tunnel-relay"];
+	const portable = ["@octoii-works/tunnel", "@octoii-works/tunnel/protocol", "@octoii-works/tunnel-relay"];
 	const script = portable.map((name) => `await import(${JSON.stringify(name)});`).join("\n");
 	await Bun.write(join(consumer, "portable.mjs"), script);
 	await run(["node", "portable.mjs"], consumer);
 	await run(["bun", "portable.mjs"], consumer);
-	await Bun.write(join(consumer, "bun.mjs"), 'await import("@octoii/tunnel-relay/bun");');
+	await Bun.write(join(consumer, "bun.mjs"), 'await import("@octoii-works/tunnel-relay/bun");');
 	await run(["bun", "bun.mjs"], consumer);
 	for (const target of ["portable", "bun"]) {
 		if (target === "bun") await run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-save", "@types/bun@1.4.3"], consumer);
-		const entries = target === "portable" ? portable : ["@octoii/tunnel-relay/bun"];
+		const entries = target === "portable" ? portable : ["@octoii-works/tunnel-relay/bun"];
 		await Bun.write(join(consumer, "types.ts"), entries.map((name, i) => `import * as entry${i} from ${JSON.stringify(name)}; void entry${i};`).join("\n"));
 		await Bun.write(
 			join(consumer, "tsconfig.json"),

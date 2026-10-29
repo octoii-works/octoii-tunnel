@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- The relay is published as `@octoii-works/tunnel-relay`, released with `@octoii-works/tunnel` at the same version, and
+  speaks the wire format of its `/protocol` subpath.
+
 ### Added
 
 - `createRelay()`: the router, with registration on the base domain and every device request handed to its session.

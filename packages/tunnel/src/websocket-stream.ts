@@ -24,7 +24,7 @@ import {
 	SendCredit,
 	toClosing,
 	toHeaders,
-} from "@octoii/tunnel-protocol";
+} from "./protocol/index.ts";
 
 /** A visitor's WebSocket on the device, as the service talks over it. */
 export interface TunnelSocket {

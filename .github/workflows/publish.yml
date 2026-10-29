@@ -1,8 +1,8 @@
 name: Publish
 run-name: "release ${{ inputs.version }}"
 
-# Releases the three packages at one version under a dist-tag, protocol first, then pushes the release commit and
-# tag. npm trusts this workflow (trusted publishing): no npm token is stored, and npm adds provenance once the
+# Releases both packages at one version under a dist-tag, @octoii-works/tunnel first and then the relay, which depends
+# on that same version, then pushes the release commit and tag. npm trusts this workflow (trusted publishing): no npm token is stored, and npm adds provenance once the
 # repository is public.
 
 on:
@@ -57,7 +57,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           TAG: ${{ inputs.tag }}
         run: |
-          for name in octoii-tunnel-protocol octoii-tunnel octoii-tunnel-relay; do
+          for name in octoii-works-tunnel octoii-works-tunnel-relay; do
             npm publish "dist/packages/$name-$VERSION.tgz" --access public --tag "$TAG"
           done
 

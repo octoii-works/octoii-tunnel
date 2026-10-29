@@ -12,7 +12,7 @@ import {
 	newDeviceId,
 	PING,
 	PONG,
-} from "@octoii/tunnel-protocol";
+} from "@octoii-works/tunnel/protocol";
 import { DeviceSession, type SessionSocket, type SocketAttachment } from "../src/index.ts";
 
 const ORIGIN = "https://relay.test";

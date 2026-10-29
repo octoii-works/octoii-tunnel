@@ -2,7 +2,7 @@
  * What the relay core asks of the host that runs it, and how the host configures it. A host routes each device's
  * requests to that device's session and gives the session its record, its sockets and a clock.
  */
-import type { Limits } from "@octoii/tunnel-protocol";
+import type { Limits } from "@octoii-works/tunnel/protocol";
 
 /** What the relay keeps of a device. */
 export type DeviceRecord = { readonly id: string; readonly name: string; readonly credentialHash: string };

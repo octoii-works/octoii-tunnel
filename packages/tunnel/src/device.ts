@@ -1,5 +1,5 @@
 /** Registering a device with a relay, and removing it. */
-import { decodeRegistration, devicePath, isCredential, isDeviceId, parseRelayOrigin, REGISTRATION_PATH, type Registration } from "@octoii/tunnel-protocol";
+import { decodeRegistration, devicePath, isCredential, isDeviceId, parseRelayOrigin, REGISTRATION_PATH, type Registration } from "./protocol/index.ts";
 
 /** A registered device: its id, its credential and its address. Keep it secret, as the credential is only shown once. */
 export type Device = Registration;

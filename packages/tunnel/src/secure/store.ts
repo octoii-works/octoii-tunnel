@@ -1,5 +1,5 @@
 /** Where each side keeps its static key and the keys it has paired with. */
-import { decodeBase64Url, encodeBase64Url, isJsonObject } from "@octoii/tunnel-protocol";
+import { decodeBase64Url, encodeBase64Url, isJsonObject } from "../protocol/index.ts";
 import { x25519 } from "@noble/curves/ed25519.js";
 import { generateKeyPair, type KeyPair } from "./noise.ts";
 

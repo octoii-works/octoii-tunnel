@@ -19,7 +19,7 @@ import {
 	MessageAssembler,
 	ProtocolError,
 	toHeaders,
-} from "@octoii/tunnel-protocol";
+} from "../protocol/index.ts";
 import { CHANNEL_FRAME, type ChannelFrame, type ChannelFrameType, decodeChannelFrame, encodeChannelFrame, MAX_CHANNEL_PAYLOAD } from "./frames.ts";
 import type { TransportCiphers } from "./noise.ts";
 

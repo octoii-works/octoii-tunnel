@@ -17,7 +17,7 @@ import {
 	SendCredit,
 	sendBody,
 	toHeaders,
-} from "@octoii/tunnel-protocol";
+} from "@octoii-works/tunnel/protocol";
 import { errorResponse } from "./hooks.ts";
 
 /** What an HTTP stream needs from its session. */

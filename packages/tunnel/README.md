@@ -1,10 +1,10 @@
-# @octoii/tunnel
+# @octoii-works/tunnel
 
-The octoiitunnel client. On a device: register it with a relay, and run its connector, which keeps one connection to
-the relay, reconnects with backoff, and serves every visitor's request through your handler.
+The octoiitunnel client and its wire format. On a device: register it with a relay, and run its connector, which keeps
+one connection to the relay, reconnects with backoff, and serves every visitor's request through your handler.
 
 ```ts
-import { connectDevice, registerDevice } from "@octoii/tunnel";
+import { connectDevice, registerDevice } from "@octoii-works/tunnel";
 
 const device = await registerDevice({ relay: "https://octoiitunnel.com", token }); // keep it: the credential is shown once
 const connector = connectDevice({ relay: "https://octoiitunnel.com", device, handler: (request) => app.fetch(request) });
@@ -31,4 +31,12 @@ const channel = await openSecureChannel(pairing, { store: visitorStore });
 const notes = await channel.fetch("/notes"); // answered by the device's own handler
 ```
 
-The root entry runs wherever web standards do. The wire format lives in `@octoii/tunnel-protocol`.
+## Entries
+
+- `@octoii-works/tunnel`: the client. It runs wherever JavaScript and the web's `fetch`, `Request`, `Response` and
+  `WebSocket` do, Hermes included.
+- `@octoii-works/tunnel/protocol`: the wire format, shared with the relay: frames and their payloads, the rules of the
+  connector connection, limits, flow control, WebSocket message chunking, the relay's HTTP API, and the formats of
+  device ids, credentials and addresses. It does no I/O, imports nothing of the client, and writes out UTF-8 and
+  base64url, so it needs no `TextDecoder` or `btoa`. The format is specified in
+  [docs/protocol.md](../../docs/protocol.md).

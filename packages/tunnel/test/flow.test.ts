@@ -9,7 +9,7 @@ import {
 	ReceiveCredit,
 	SendCredit,
 	sendBody,
-} from "../src/index.ts";
+} from "../src/protocol/index.ts";
 
 describe("send credit", () => {
 	test("waits for a grant, takes no more than it has, and refuses grants past the initial credit", async () => {

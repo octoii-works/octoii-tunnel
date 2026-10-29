@@ -3,7 +3,7 @@
  * development, tests, and a relay on a single machine.
  */
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
-import { MAX_MESSAGE_SIZE } from "@octoii/tunnel-protocol";
+import { MAX_MESSAGE_SIZE } from "@octoii-works/tunnel/protocol";
 import { errorResponse } from "../hooks.ts";
 import type { Clock, RelayHost, RelayOptions, SessionSocket, SocketAttachment } from "../host.ts";
 import { createRelay } from "../router.ts";

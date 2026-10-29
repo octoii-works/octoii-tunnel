@@ -11,36 +11,28 @@
         "typescript": "6.0.3",
       },
     },
-    "packages/client": {
-      "name": "@octoii/tunnel",
-      "version": "0.1.0-preview.0",
+    "packages/relay": {
+      "name": "@octoii-works/tunnel-relay",
+      "version": "0.1.0-preview.1",
+      "dependencies": {
+        "@octoii-works/tunnel": "workspace:*",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "5.20261001.1",
+        "miniflare": "4.20260730.0",
+      },
+    },
+    "packages/tunnel": {
+      "name": "@octoii-works/tunnel",
+      "version": "0.1.0-preview.1",
       "dependencies": {
         "@noble/ciphers": "2.4.0",
         "@noble/curves": "2.4.0",
         "@noble/hashes": "2.4.0",
-        "@octoii/tunnel-protocol": "workspace:*",
-      },
-    },
-    "packages/protocol": {
-      "name": "@octoii/tunnel-protocol",
-      "version": "0.1.0-preview.0",
-      "dependencies": {
-        "@noble/hashes": "2.4.0",
-      },
-    },
-    "packages/relay": {
-      "name": "@octoii/tunnel-relay",
-      "version": "0.1.0-preview.0",
-      "dependencies": {
-        "@octoii/tunnel-protocol": "workspace:*",
-      },
-      "devDependencies": {
-        "@cloudflare/workers-types": "5.20261001.1",
-        "@octoii/tunnel": "workspace:*",
-        "miniflare": "4.20260730.0",
       },
     },
   },
+  "trustedDependencies": [],
   "packages": {
     "@cloudflare/workerd-darwin-64": ["@cloudflare/workerd-darwin-64@1.20260730.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-+MBHmPaiTe2KajryW0T24rZvWFxb41hD3d8anNzQqHzft6vSEb18+sp0znSwxgij7ApPhSM1+vhkNg4f3YMguA=="],
 
@@ -124,11 +116,9 @@
 
     "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 
-    "@octoii/tunnel": ["@octoii/tunnel@workspace:packages/client"],
+    "@octoii-works/tunnel": ["@octoii-works/tunnel@workspace:packages/tunnel"],
 
-    "@octoii/tunnel-protocol": ["@octoii/tunnel-protocol@workspace:packages/protocol"],
-
-    "@octoii/tunnel-relay": ["@octoii/tunnel-relay@workspace:packages/relay"],
+    "@octoii-works/tunnel-relay": ["@octoii-works/tunnel-relay@workspace:packages/relay"],
 
     "@oxlint/binding-android-arm-eabi": ["@oxlint/binding-android-arm-eabi@1.87.0", "", { "os": "android", "cpu": "arm" }, "sha512-22tVIHlB9898OYsBKmYB6He1MCSqdTmK1BVWuSNUTVrpS0KWNege+U9uEYqGJ+KatQag0r/oU44i3OOs46z7HQ=="],
 

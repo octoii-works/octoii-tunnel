@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodeBase64Url, decodeUtf8, encodeBase64Url, encodeUtf8, ProtocolError } from "../src/index.ts";
+import { decodeBase64Url, decodeUtf8, encodeBase64Url, encodeUtf8, ProtocolError } from "../src/protocol/index.ts";
 
 const SAMPLES = ["", "ascii", "ünïcödé", "日本語", "emoji 🐙 and 𝄞", "\u0000\u007f\u0080߿ࠀ￿", "x".repeat(10_000) + "🐙"];
 

@@ -2,7 +2,7 @@
  * Pairing offers: a one-time code and the connector's public key in the fragment of the device's address, which a
  * browser never sends, so the relay never learns either.
  */
-import { decodeBase64Url, encodeBase64Url, ProtocolError, sameSecret } from "@octoii/tunnel-protocol";
+import { decodeBase64Url, encodeBase64Url, ProtocolError, sameSecret } from "../protocol/index.ts";
 
 /** How long an offer may be used, in milliseconds. */
 export const OFFER_LIFETIME = 5 * 60_000;

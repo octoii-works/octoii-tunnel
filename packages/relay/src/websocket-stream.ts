@@ -25,7 +25,7 @@ import {
 	type ResetCode,
 	SendCredit,
 	toClosing,
-} from "@octoii/tunnel-protocol";
+} from "@octoii-works/tunnel/protocol";
 import type { SessionSocket } from "./host.ts";
 
 /** How long the relay waits for the connector to accept or refuse a WebSocket. */

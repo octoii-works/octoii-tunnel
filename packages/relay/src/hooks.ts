@@ -1,5 +1,5 @@
 /** The relay's responses and how it calls its hooks, isolated so a failing hook cannot change the traffic. */
-import { ERROR_STATUS, type ErrorBody, type ErrorCode } from "@octoii/tunnel-protocol";
+import { ERROR_STATUS, type ErrorBody, type ErrorCode } from "@octoii-works/tunnel/protocol";
 import type { Authorization, Decision, MeterEvent, RelayOptions } from "./host.ts";
 
 /** An error response in the relay's format. */

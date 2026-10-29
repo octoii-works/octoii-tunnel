@@ -1,14 +1,14 @@
 {
   "overrides": [
     {
-      "files": ["packages/protocol/src/**/*.ts", "packages/client/src/*.ts", "packages/client/src/secure/**/*.ts"],
+      "files": ["packages/tunnel/src/**/*.ts"],
       "rules": {
         "no-restricted-globals": [
           "error",
-          { "name": "TextDecoder", "message": "Hermes has no TextDecoder; use decodeUtf8 from the protocol package." },
-          { "name": "TextEncoder", "message": "Use encodeUtf8 from the protocol package, which runs everywhere." },
-          { "name": "btoa", "message": "Hermes may lack btoa; use encodeBase64Url from the protocol package." },
-          { "name": "atob", "message": "Hermes may lack atob; use decodeBase64Url from the protocol package." }
+          { "name": "TextDecoder", "message": "Hermes has no TextDecoder; use decodeUtf8 from the protocol." },
+          { "name": "TextEncoder", "message": "Use encodeUtf8 from the protocol, which runs everywhere." },
+          { "name": "btoa", "message": "Hermes may lack btoa; use encodeBase64Url from the protocol." },
+          { "name": "atob", "message": "Hermes may lack atob; use decodeBase64Url from the protocol." }
         ]
       }
     }
