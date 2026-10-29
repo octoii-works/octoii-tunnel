@@ -7,6 +7,11 @@
 - The relay is published as `@octoii-works/tunnel-relay`, released with `@octoii-works/tunnel` at the same version, and
   speaks the wire format of its `/protocol` subpath.
 
+### Changed
+
+- A registration body is read as bytes and decoded with the protocol's JSON decoding, which refuses bytes that are not
+  UTF-8 as it refuses any other invalid body.
+
 ### Added
 
 - `createRelay()`: the router, with registration on the base domain and every device request handed to its session.

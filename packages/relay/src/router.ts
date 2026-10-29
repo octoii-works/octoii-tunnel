@@ -1,11 +1,11 @@
 /** The relay's router: registration on the base domain, and every other request handed to its device's session. */
 import {
-	decodeUtf8,
+	decodeJsonObject,
 	deviceAddress,
 	hashCredential,
 	isDeviceId,
-	isJsonObject,
 	isStringUpTo,
+	type JsonObject,
 	matchDevicePath,
 	MAX_DEVICE_NAME_LENGTH,
 	MAX_REGISTRATION_BYTES,
@@ -78,25 +78,24 @@ async function register(request: Request, host: RelayHost, origin: RelayOrigin, 
 
 /** The name in a registration body (empty when there is none), or `undefined` when the body is invalid. */
 async function registrationName(request: Request): Promise<string | undefined> {
-	const text = await readText(request, MAX_REGISTRATION_BYTES);
-	if (text === undefined) return undefined;
-	if (text === "") return "";
-	let body: unknown;
+	const bytes = await readBytes(request, MAX_REGISTRATION_BYTES);
+	if (bytes === undefined) return undefined;
+	if (bytes.length === 0) return "";
+	let body: JsonObject;
 	try {
-		body = JSON.parse(text);
+		body = decodeJsonObject(bytes);
 	} catch {
 		return undefined;
 	}
-	if (!isJsonObject(body)) return undefined;
 	const name = body["name"];
 	if (name === undefined) return "";
 	return isStringUpTo(name, MAX_DEVICE_NAME_LENGTH) ? name : undefined;
 }
 
-/** The request's body as UTF-8 text, or `undefined` when it is longer than `limit` bytes or not UTF-8. */
-async function readText(request: Request, limit: number): Promise<string | undefined> {
+/** The request's body, or `undefined` when it is longer than `limit` bytes. */
+async function readBytes(request: Request, limit: number): Promise<Uint8Array | undefined> {
 	const reader = request.body?.getReader();
-	if (reader === undefined) return "";
+	if (reader === undefined) return new Uint8Array(0);
 	const bytes = new Uint8Array(limit);
 	let size = 0;
 	try {
@@ -109,9 +108,5 @@ async function readText(request: Request, limit: number): Promise<string | undef
 		await reader.cancel().catch(() => undefined);
 		reader.releaseLock();
 	}
-	try {
-		return decodeUtf8(bytes.subarray(0, size));
-	} catch {
-		return undefined;
-	}
+	return bytes.subarray(0, size);
 }
