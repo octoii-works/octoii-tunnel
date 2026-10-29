@@ -13,9 +13,10 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 
 ## Background
 
-- octoiitunnel is Octoii's tunnel. Its first user is **OctoiiCode** (`octoii-works/octoii-code`, locally `/Users/devxiyang/code/octoii-works/octoii-code`),
-  an agent that runs as a server on the user's PC. The user talks to it **from their phone**, from anywhere, and the
-  phone reaches the PC through octoiitunnel. OctoiiCode depends on `@octoii/tunnel`.
+- octoiitunnel is Octoii's tunnel. Its first user is **Octoii** (`octoii-works/octoii`, locally
+  `/Users/devxiyang/code/octoii-works/octoii`), an agent that runs as a server on the user's PC. The user talks to it
+  **from their phone**, from anywhere, and the phone reaches the PC through octoiitunnel. Octoii depends on the npm
+  release of `@octoii-works/tunnel`.
 - This repository is the **open core**: the protocol, the relay and the client, all MIT. Octoii's hosted service at
   `octoiitunnel.com` (accounts, named subdomains, billing, quotas, dashboard, direct connections) is closed and lives
   elsewhere. It plugs into the core only through the relay's `authorize` and `meter` hooks. Never put such concerns here.
@@ -29,7 +30,7 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 - Every exported function, class, type and constant has a doc comment that says what it is or does. Comments inside code say why, not what.
 - TypeScript: no `any`, no needless type assertions, no non-null assertions (`!`), no constructor parameter properties; validate external input (frames, HTTP, handshake payloads) before narrowing it. `tsconfig.base.json` is strict for every package.
 - Constants are `UPPER_CASE`. Each format (a device id, a credential, a header list) is checked by one function, used everywhere.
-- A package's root entry is platform-neutral: web standards that Hermes also has. No `TextDecoder`, `btoa` or `atob`: the protocol package has UTF-8 and base64url of its own. Platform code lives in subpaths (`/worker`, `/bun`). Dependencies only point down: protocol ← client, protocol ← relay.
+- A package's root entry is platform-neutral: web standards that Hermes also has, and no host clock, timer or randomness: the client takes them as a `Platform`, and `/web` alone reads the web standards' own. No `TextDecoder`, `btoa` or `atob`: the protocol has UTF-8 and base64url of its own. Platform code lives in subpaths (`/web`, `/worker`, `/bun`). Dependencies only point down: `@octoii-works/tunnel/protocol` ← the client, `@octoii-works/tunnel/protocol` ← the relay, and the relay's tests on the client.
 - Bun first, Node compatible. The relay core uses only what its host interfaces give it.
 - Cryptography uses audited primitives (the `@noble` libraries); no hand-rolled ciphers, curves or hashes.
 
@@ -45,5 +46,5 @@ implement it; when they are wrong, fix the spec in the same commit as the code.
 - Commits use conventional messages (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 - Each package keeps a `CHANGELOG.md` with an `[Unreleased]` section, entries under `### Added`, `### Changed`, `### Fixed`, `### Removed` or `### Breaking Changes`.
 - No secrets in the repo; tests generate their credentials and keys.
-- Read other repositories, such as OctoiiCode's, for reference only: never change, commit, install or format anything outside this repository.
-- The packages are published to npm under `@octoii`, all at one version; previews go under the `next` tag. Publish only when Octoii asks.
+- Read other repositories, such as Octoii's, for reference only: never change, commit, install or format anything outside this repository.
+- The packages are published to npm under `@octoii-works`, both at one version, `@octoii-works/tunnel` first; previews go under the `next` tag. Publish only when Octoii asks.

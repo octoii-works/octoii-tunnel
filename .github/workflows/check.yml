@@ -1,0 +1,26 @@
+name: Check
+
+# Runs the repository's checks on every push to main and on every pull request: format, lint, type check and tests,
+# the relay's on Bun and on Durable Objects among them.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/setup-bun
+      - name: Check
+        run: bun run check
