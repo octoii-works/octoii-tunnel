@@ -1,9 +1,15 @@
 import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 /** The repository's root. */
 export const ROOT = resolve(import.meta.dir, "..");
+
+/**
+ * The TypeScript compiler, as the repository resolves it: its own install, or, where it is a submodule of another
+ * repository, that one's.
+ */
+export const TSC = join(dirname(Bun.resolveSync("typescript/package.json", ROOT)), "bin", "tsc");
 /** The packages, each after the ones it depends on. */
 export const packages = ["tunnel", "relay"] as const;
 

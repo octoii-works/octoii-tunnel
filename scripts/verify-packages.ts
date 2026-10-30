@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pack, ROOT, run } from "./workspace.ts";
+import { pack, run, TSC } from "./workspace.ts";
 
 await run(["bun", "run", "build"]);
 const consumer = await mkdtemp(join(tmpdir(), "octoiitunnel-consumer-"));
@@ -43,7 +43,7 @@ try {
 				files: ["types.ts"],
 			}),
 		);
-		await run([join(ROOT, "node_modules/.bin/tsc"), "-p", "tsconfig.json"], consumer);
+		await run([TSC, "-p", "tsconfig.json"], consumer);
 	}
 	console.log("Package contents, licenses, isolated imports and declarations verified");
 } finally {
