@@ -17,7 +17,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./protocol": "./src/protocol/index.ts",
-    "./web": "./src/web.ts"
+    "./web": "./src/web.ts",
+    "./bun": "./src/bun/index.ts"
   },
   "files": [
     "dist",

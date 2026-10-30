@@ -9,7 +9,7 @@ few things it cannot. It is a guide, not a checklist.
 - Plain English words; units in the name (`timeoutMs`, `maxBytes`).
 - A function that returns something is named for what it returns (`reconnectDelay`, not `getReconnectDelay`); one that
   acts is a verb (`connect`); a predicate is `isX` or `hasX`.
-- The terms are the ones [design.md](design.md) defines: relay, device, connector, visitor, stream, plain and secure
+- The terms are the ones [the client's spec](../packages/tunnel/docs/spec.md#glossary) defines: relay, device, connector, visitor, stream, plain and secure
   mode, pairing.
 - An error class is named for what happened; it keeps the error it replaces as `cause`.
 

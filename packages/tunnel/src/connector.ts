@@ -23,13 +23,7 @@ import type { Device } from "./device.ts";
 import { type Platform, randomFraction, repeat } from "./platform.ts";
 import { type Handler, ServedHttpStream } from "./http-stream.ts";
 import { ServedWebSocketStream, type TunnelSocket, type WebSocketHandler } from "./websocket-stream.ts";
-import type { SecureChannel } from "./secure/channel.ts";
-import { respond } from "./secure/handshake.ts";
-import { type PairingOffer, PairingOffers } from "./secure/offers.ts";
-import { forgetVisitor, type PairedVisitor, pairedVisitors, type PairingStore, staticKeyOf } from "./secure/store.ts";
-
-/** The close code of a forgotten visitor's channels: as for a refused handshake, the visitor is not paired. */
-const FORGOTTEN = 4401;
+import type { SecureEndpoint } from "./secure/endpoint.ts";
 
 /** How a connector is set up. */
 export type ConnectorOptions = {
@@ -40,8 +34,8 @@ export type ConnectorOptions = {
 	readonly handler: Handler;
 	/** Accepts or refuses each visitor's WebSocket; without it, WebSockets are refused. */
 	readonly websocket?: WebSocketHandler;
-	/** Where the connector keeps its key and the visitors it paired with; without it, there is no secure mode. */
-	readonly store?: PairingStore;
+	/** The device's secure endpoint, which the secure streams go to; without it, there is no secure mode. */
+	readonly secure?: SecureEndpoint;
 	/** Hears about failures the connector recovers from or stops on. */
 	readonly onError?: (error: Error) => void;
 	/** The clock, timers and randomness the connector runs on, such as `webPlatform` from `/web`. */
@@ -63,10 +57,6 @@ export class Connector {
 	private readonly url: string;
 	private readonly address: string;
 	private readonly streams = new Map<number, ServedHttpStream | ServedWebSocketStream>();
-	private readonly offers: PairingOffers;
-	private readonly channelListeners = new Set<(channel: SecureChannel) => void>();
-	/** The secure channels open now, so forgetting a visitor closes its own. */
-	private readonly channels = new Set<SecureChannel>();
 	private connection: ConnectorConnection | undefined;
 	private connectedAt = 0;
 	private attempt = 0;
@@ -82,7 +72,6 @@ export class Connector {
 		if (!isDeviceId(deviceId) || !isCredential(credential) || address !== deviceAddress(relay, deviceId)) throw new Error("Not a device of this relay");
 		this.options = options;
 		this.address = address;
-		this.offers = new PairingOffers(options.platform);
 		this.url = `${relay.scheme === "https" ? "wss" : "ws"}://${relay.host}${connectPath(deviceId)}`;
 		this.ready = new Promise((resolve, reject) => {
 			this.settleReady = { resolve, reject };
@@ -91,29 +80,6 @@ export class Connector {
 			this.settleClosed = resolve;
 		});
 		this.connect();
-	}
-
-	/** A pairing offer to show a visitor, usually as a QR code; it works once, for five minutes. */
-	async offerPairing(): Promise<PairingOffer> {
-		const store = this.requireStore();
-		return this.offers.create(this.address, (await staticKeyOf(store, this.options.platform.randomBytes)).publicKey);
-	}
-
-	/** Calls `listener` with each secure channel a paired visitor opens; returns what stops it. */
-	onSecureChannel(listener: (channel: SecureChannel) => void): () => void {
-		this.channelListeners.add(listener);
-		return () => this.channelListeners.delete(listener);
-	}
-
-	/** The visitors this device has paired with, the earliest first. */
-	async visitors(): Promise<PairedVisitor[]> {
-		return pairedVisitors(this.requireStore());
-	}
-
-	/** Forgets a paired visitor: its open channels close, and its next one is refused. */
-	async forgetVisitor(publicKey: string): Promise<void> {
-		await forgetVisitor(this.requireStore(), publicKey);
-		for (const channel of this.channels) if (channel.visitor.publicKey === publicKey) channel.close(FORGOTTEN, "The visitor was forgotten");
 	}
 
 	/** Stops the connector and closes its connection. */
@@ -187,32 +153,12 @@ export class Connector {
 		};
 	}
 
-	/** A visitor's WebSocket: the secure path runs a handshake, any other goes to the service's handler. */
+	/** A visitor's WebSocket: the secure path goes to the secure endpoint, any other to the service's handler. */
 	private websocket(path: string, request: Request, accept: (protocol?: string) => TunnelSocket): void | Response | Promise<void | Response> {
 		if (!isSecurePath(path)) return this.options.websocket?.(request, accept) ?? new Response(null, { status: 501 });
-		const store = this.options.store;
-		if (store === undefined) return new Response(null, { status: 501 });
-		const { platform } = this.options;
-		return staticKeyOf(store, platform.randomBytes).then((key) => {
-			respond(accept(), {
-				key,
-				store,
-				platform,
-				offers: this.offers,
-				address: this.address,
-				handler: this.options.handler,
-				accepted: (channel) => {
-					this.channels.add(channel);
-					void channel.done.then(() => this.channels.delete(channel));
-					for (const listener of this.channelListeners) listener(channel);
-				},
-			});
-		});
-	}
-
-	private requireStore(): PairingStore {
-		if (this.options.store === undefined) throw new Error("Secure mode needs a pairing store");
-		return this.options.store;
+		const secure = this.options.secure;
+		if (secure === undefined) return new Response(null, { status: 501 });
+		return secure.accept(() => accept());
 	}
 
 	/** Resets an unknown or refused stream, ignoring a connection that is already gone. */

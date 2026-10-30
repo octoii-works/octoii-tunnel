@@ -10,6 +10,7 @@ work.
 | The relay operator | Every request and message it forwards, as a reverse proxy does. It keeps none of it | Who connects to which device, when, and how many bytes. Not the content |
 | The network between a party and the relay | Nothing beyond TLS metadata | The same |
 | A stranger who knows the device's address | Whatever the service serves without authentication | Nothing: the connector refuses a key it has not paired with |
+| A stranger on the device's network | | The direct listener, which answers only the handshake and refuses a key the device has not paired with |
 | A visitor the connector has paired with | | What the service gives that visitor |
 
 The relay never stores traffic. What it may record is what `meter` receives: device, stream kind, bytes each way and
@@ -103,6 +104,14 @@ handshake message is one WebSocket message.
 - The service sees a secure channel as a `SecureChannel`: the visitor's paired identity (public key, name), messages
   either way, and fetch-style requests answered by a handler, so it can serve the same app over the channel as it
   serves in plain mode.
+
+## Direct channels
+
+A direct listener on the device's network serves the secure path alone; a paired visitor reaches it at an address the
+device's service gave it inside an earlier channel, never in the clear. The handshake there is the one above: the
+visitor pins the connector's key, and the connector accepts only paired keys, so the network between them carries
+ciphertext and a stranger on it gets a refused handshake. The listener holds the same limits on handshakes as the
+relay path: a handshake finishes in 10 seconds or the socket closes.
 
 ## Where the visitor's code comes from
 

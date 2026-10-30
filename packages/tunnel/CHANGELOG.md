@@ -9,6 +9,16 @@
 - The client reads no clock, timer or randomness of its own: `connectDevice()`, `pairWith()` and `openSecureChannel()`
   take a `platform`, a `Clock` (`now`, `setTimer`) and `randomBytes`. `reconnectDelay()` takes its `random` function,
   and the protocol's `newDeviceId()` and `newCredential()` their `randomBytes`.
+- Secure mode is the `SecureEndpoint` that `createSecureEndpoint({ address, store, handler, platform })` makes: it
+  offers pairings, accepts channels, lists and forgets visitors. `connectDevice()` takes it as `secure`, in place of
+  `store`, and hands it the secure streams; the connector no longer offers pairings or lists visitors itself.
+
+### Added
+
+- `openSecureChannel(pairing, { via })` opens a channel directly at an address the device gave, rather than through
+  its relay.
+- `/bun`: `serveDirect()`, a listener on the device's own network that serves only the secure path, and
+  `filePairingStore()`, a pairing store in one file.
 
 ### Added
 

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
 	type Connector,
 	connectDevice,
+	createSecureEndpoint,
 	type Device,
 	type Handler,
 	MemoryPairingStore,
@@ -13,6 +14,7 @@ import {
 	removeDevice,
 	type SecureChannel,
 } from "@octoii-works/tunnel";
+import { serveDirect } from "@octoii-works/tunnel/bun";
 import { webPlatform } from "@octoii-works/tunnel/web";
 
 /** The registration token every test relay uses. */
@@ -307,27 +309,24 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 			async function secureDevice(relay: Running, store = new MemoryPairingStore(), device?: Device) {
 				const registered = device ?? (await registerDevice({ relay: relay.origin, token: TOKEN }));
 				const channels: SecureChannel[] = [];
-				const connector = connectDevice({
-					relay: relay.origin,
-					device: registered,
-					store,
-					platform: webPlatform,
-					handler: async (request) => new Response(`${request.method} ${new URL(request.url).pathname} ${await request.text()}`),
-				});
-				connector.onSecureChannel((channel) => {
+				const handler = async (request: Request): Promise<Response> =>
+					new Response(`${request.method} ${new URL(request.url).pathname} ${await request.text()}`);
+				const secure = createSecureEndpoint({ address: registered.address, store, handler, platform: webPlatform });
+				const connector = connectDevice({ relay: relay.origin, device: registered, secure, platform: webPlatform, handler });
+				secure.onSecureChannel((channel) => {
 					channels.push(channel);
 					channel.onmessage = (message) => channel.send(message);
 				});
 				cleanups.push(() => connector.close());
 				await connector.ready;
-				return { device: registered, connector, channels, store };
+				return { device: registered, connector, secure, channels, store };
 			}
 
 			test("pair from an offer, then talk and fetch over a channel the relay cannot read", async () => {
 				const relay = await start();
-				const { connector, channels } = await secureDevice(relay);
+				const { secure, channels } = await secureDevice(relay);
 				const visitorStore = new MemoryPairingStore();
-				const pairing = await pairWith((await connector.offerPairing()).url, { store: visitorStore, name: "phone", platform: webPlatform });
+				const pairing = await pairWith((await secure.offerPairing()).url, { store: visitorStore, name: "phone", platform: webPlatform });
 				const channel = await openSecureChannel(pairing, { store: visitorStore, platform: webPlatform });
 				cleanups.push(() => channel.close());
 				const reply = new Promise((resolve) => (channel.onmessage = resolve));
@@ -346,7 +345,7 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const relay = await start();
 				const first = await secureDevice(relay);
 				const visitorStore = new MemoryPairingStore();
-				const pairing = await pairWith((await first.connector.offerPairing()).url, { store: visitorStore, platform: webPlatform });
+				const pairing = await pairWith((await first.secure.offerPairing()).url, { store: visitorStore, platform: webPlatform });
 				first.connector.close();
 				await first.connector.closed;
 				await secureDevice(relay, first.store, first.device);
@@ -357,17 +356,17 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 
 			test("list the visitors paired, and close a forgotten one's channels and refuse its next", async () => {
 				const relay = await start();
-				const { connector } = await secureDevice(relay);
+				const { secure } = await secureDevice(relay);
 				const phoneStore = new MemoryPairingStore();
-				const phone = await pairWith((await connector.offerPairing()).url, { store: phoneStore, name: "phone", platform: webPlatform });
-				await pairWith((await connector.offerPairing()).url, { store: new MemoryPairingStore(), name: "laptop", platform: webPlatform });
-				const visitors = await connector.visitors();
+				const phone = await pairWith((await secure.offerPairing()).url, { store: phoneStore, name: "phone", platform: webPlatform });
+				await pairWith((await secure.offerPairing()).url, { store: new MemoryPairingStore(), name: "laptop", platform: webPlatform });
+				const visitors = await secure.visitors();
 				expect(visitors.map((visitor) => visitor.name)).toEqual(["phone", "laptop"]);
 				const channel = await openSecureChannel(phone, { store: phoneStore, platform: webPlatform });
 				const closed = new Promise<number>((resolve) => (channel.onclose = resolve));
-				await connector.forgetVisitor(visitors[0]?.publicKey ?? "");
+				await secure.forgetVisitor(visitors[0]?.publicKey ?? "");
 				expect(await closed).toBe(4401);
-				expect((await connector.visitors()).map((visitor) => visitor.name)).toEqual(["laptop"]);
+				expect((await secure.visitors()).map((visitor) => visitor.name)).toEqual(["laptop"]);
 				await expect(openSecureChannel(phone, { store: phoneStore, platform: webPlatform })).rejects.toThrow();
 			});
 
@@ -376,21 +375,17 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				const device = await registerDevice({ relay: relay.origin, token: TOKEN });
 				const onDevice = countingPlatform();
 				const onVisitor = countingPlatform();
-				const connector = connectDevice({
-					relay: relay.origin,
-					device,
-					store: new MemoryPairingStore(),
-					platform: onDevice.platform,
-					handler: async (request) => new Response(await request.text()),
-				});
+				const handler = async (request: Request): Promise<Response> => new Response(await request.text());
+				const secure = createSecureEndpoint({ address: device.address, store: new MemoryPairingStore(), handler, platform: onDevice.platform });
+				const connector = connectDevice({ relay: relay.origin, device, secure, platform: onDevice.platform, handler });
 				cleanups.push(() => connector.close());
 				await connector.ready;
 				const before = Date.now() + CLOCK_SHIFT;
-				const offer = await connector.offerPairing();
+				const offer = await secure.offerPairing();
 				expect(offer.expiresAt).toBeGreaterThanOrEqual(before + 5 * 60_000);
 				const visitorStore = new MemoryPairingStore();
 				const pairing = await pairWith(offer.url, { store: visitorStore, platform: onVisitor.platform });
-				expect((await connector.visitors())[0]?.pairedAt).toBeGreaterThanOrEqual(before);
+				expect((await secure.visitors())[0]?.pairedAt).toBeGreaterThanOrEqual(before);
 				const channel = await openSecureChannel(pairing, { store: visitorStore, platform: onVisitor.platform });
 				cleanups.push(() => channel.close());
 				const body = "octoiitunnel ".repeat(20_000);
@@ -401,10 +396,25 @@ export function relaySuite(host: string, start: () => Promise<Running>): void {
 				}
 			});
 
+			test("open a channel directly at an address the device gave, and refuse a stranger and every other path there", async () => {
+				const relay = await start();
+				const { secure } = await secureDevice(relay);
+				const direct = serveDirect({ endpoint: secure, hostname: "127.0.0.1", port: 0 });
+				cleanups.push(() => void direct.close());
+				const visitorStore = new MemoryPairingStore();
+				const pairing = await pairWith((await secure.offerPairing()).url, { store: visitorStore, platform: webPlatform });
+				const via = `http://127.0.0.1:${direct.port}`;
+				const channel = await openSecureChannel(pairing, { store: visitorStore, platform: webPlatform, via });
+				cleanups.push(() => channel.close());
+				expect(await (await channel.fetch("/near")).text()).toBe("GET /near ");
+				await expect(openSecureChannel(pairing, { store: new MemoryPairingStore(), platform: webPlatform, via })).rejects.toThrow();
+				expect((await fetch(`${via}/anything`)).status).toBe(404);
+			});
+
 			test("refuse a visitor that never paired, and a pairing code used twice", async () => {
 				const relay = await start();
-				const { connector } = await secureDevice(relay);
-				const offer = await connector.offerPairing();
+				const { secure } = await secureDevice(relay);
+				const offer = await secure.offerPairing();
 				const pairing = await pairWith(offer.url, { store: new MemoryPairingStore(), platform: webPlatform });
 				await expect(openSecureChannel(pairing, { store: new MemoryPairingStore(), platform: webPlatform })).rejects.toThrow();
 				await expect(pairWith(offer.url, { store: new MemoryPairingStore(), platform: webPlatform })).rejects.toThrow();

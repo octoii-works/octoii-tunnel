@@ -76,19 +76,20 @@ Either way you need a wildcard domain (`*.<your domain>`) and the bare domain po
 
 ## Docs
 
-- [Design](docs/design.md): the packages, the relay and its hosts, the connector.
-- [Protocol](docs/protocol.md): the relay's HTTP API and the connector connection.
-- [Security](docs/security.md): pairing, the secure channel, and what each party can and cannot see.
+- [The client](packages/tunnel/docs/spec.md): the connector, the secure endpoint, direct channels and the visitor.
+- [The relay](packages/relay/docs/spec.md): the router, the device session, its hosts and hooks.
+- [Protocol](packages/tunnel/docs/protocol.md): the relay's HTTP API and the connector connection.
+- [Security](packages/tunnel/docs/security.md): pairing, the secure channel, and what each party can and cannot see.
 - [Development](docs/development.md): checks, building and packing.
 
 ## Status
 
 Under construction. Built: the protocol; registration; the connector with heartbeats and reconnects; plain
 HTTP streams and visitor WebSockets under flow control; sessions that resume from their sockets; and the Bun host with
-SQLite and the Durable Object host with hibernation, both passing one behavioral suite; pairing and secure channels;
-a client that runs on the platform it is given, held to it by a portability scan.
-Being built: reopening a dropped secure channel on its own, a file-backed pairing store, and the `octoiitunnel`
-command.
+SQLite and the Durable Object host with hibernation, both passing one behavioral suite; pairing and secure channels,
+through the relay or directly on the device's own network; a pairing store in a file; a client that runs on the
+platform it is given, held to it by a portability scan.
+Being built: reopening a dropped secure channel on its own, and the `octoiitunnel` command.
 
 ## License
 

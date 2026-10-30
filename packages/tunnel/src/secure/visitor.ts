@@ -8,8 +8,11 @@ import { keepPairing, type Pairing, type PairingStore, staticKeyOf } from "./sto
 /** How a visitor pairs: where it keeps its key and pairings, the name the device shows for it, and its platform. */
 export type PairingOptions = { readonly store: PairingStore; readonly name?: string; readonly platform: Platform };
 
-/** How a visitor opens a secure channel: where it keeps its key, and its platform. */
-export type SecureChannelOptions = { readonly store: PairingStore; readonly platform: Platform };
+/**
+ * How a visitor opens a secure channel: where it keeps its key, its platform, and, to reach the device directly rather
+ * than through its relay, an address the device's service gave it over an earlier channel.
+ */
+export type SecureChannelOptions = { readonly store: PairingStore; readonly platform: Platform; readonly via?: string };
 
 /**
  * Pairs with the device whose offer `offerUrl` is, as scanned from its QR code: proves the offer's one-time code, and
@@ -26,7 +29,11 @@ export async function pairWith(offerUrl: string, options: PairingOptions): Promi
 	return pairing;
 }
 
-/** Opens a secure channel to a device the visitor has paired with. */
+/**
+ * Opens a secure channel to a device the visitor has paired with, at `via` where given, else through its relay; the
+ * handshake holds the device to the key it paired with on either path.
+ */
 export async function openSecureChannel(pairing: Pairing, options: SecureChannelOptions): Promise<VisitorChannel> {
-	return initiate(pairing.address, await staticKeyOf(options.store, options.platform.randomBytes), pairing.connectorKey, {}, options.platform);
+	const key = await staticKeyOf(options.store, options.platform.randomBytes);
+	return initiate(options.via ?? pairing.address, key, pairing.connectorKey, {}, options.platform);
 }

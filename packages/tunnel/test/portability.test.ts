@@ -4,8 +4,8 @@ import { portabilityProblems } from "./portability.ts";
 
 const source = new URL("../src/", import.meta.url);
 
-/** `/web`, the one file that reads the web standards' clock, timers and randomness; every other runs on any engine. */
-const PLATFORM_FILES = new Set(["web.ts"]);
+/** `/web`, which reads the web standards' clock, timers and randomness, and `/bun`; every other file runs on any engine. */
+const PLATFORM_FILES = /^(?:web\.ts|bun\/)/;
 
 /** The audited cryptography the client is built on. */
 const NOBLE = /^@noble\/(?:ciphers|curves|hashes)\/[\w.-]+\.js$/;
@@ -14,7 +14,7 @@ const NOBLE = /^@noble\/(?:ciphers|curves|hashes)\/[\w.-]+\.js$/;
 function neutralFiles(): { readonly file: string; readonly text: string }[] {
 	return readdirSync(source, { recursive: true, encoding: "utf8" })
 		.map((file) => file.replaceAll("\\", "/"))
-		.filter((file) => file.endsWith(".ts") && !PLATFORM_FILES.has(file))
+		.filter((file) => file.endsWith(".ts") && !PLATFORM_FILES.test(file))
 		.map((file) => ({ file, text: readFileSync(new URL(file, source), "utf8") }));
 }
 

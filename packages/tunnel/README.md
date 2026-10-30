@@ -56,5 +56,5 @@ random bytes as `randomBytes`. A test passes a clock it moves.
   connector connection, limits, flow control, WebSocket message chunking, the relay's HTTP API, and the formats of
   device ids, credentials and addresses. It does no I/O, imports nothing of the client, and writes out UTF-8 and
   base64url, so it needs no `TextDecoder` or `btoa`. The format is specified in
-  [docs/protocol.md](../../docs/protocol.md).
+  [docs/protocol.md](docs/protocol.md).
 - `@octoii-works/tunnel/web`: `webPlatform`.
