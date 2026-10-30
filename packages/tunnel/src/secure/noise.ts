@@ -9,6 +9,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import type { RandomBytes } from "../platform.ts";
 import { encodeUtf8 } from "../protocol/index.ts";
 
+/** The Noise protocol the secure channel runs, as its handshake names it. */
 export const PROTOCOL_NAME = "Noise_XX_25519_ChaChaPoly_SHA256";
 /** The longest Noise message, handshake or transport. */
 export const MAX_MESSAGE_LENGTH = 65535;

@@ -1,35 +1,43 @@
 {
-  "name": "octoii-tunnel-workspace",
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "octoii-tunnel",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
+  "engines": {
+    "bun": "1.4.4"
+  },
   "scripts": {
-    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test",
-    "format": "prettier --write \"**/*.{ts,js,mjs}\"",
-    "format:check": "prettier --check \"**/*.{ts,js,mjs}\"",
-    "lint": "oxlint --deny-warnings packages scripts",
-    "typecheck": "tsc -p packages/tunnel && tsc -p packages/relay && tsc -p packages/relay/tsconfig.worker.json && tsc -p tsconfig.bun.json",
+    "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives packages scripts oxlint-plugin-tunnel",
+    "format": "bun fmt \"**/*.{ts,tsx,js,mjs}\"",
+    "format:check": "bun fmt --check \"**/*.{ts,tsx,js,mjs}\"",
+    "knip": "knip --no-progress",
+    "typecheck": "bun check --no-script -b -p tsconfig.projects.json",
+    "test": "bun run --workspaces --parallel test",
+    "test:node": "node node_modules/vitest/vitest.mjs run",
+    "check": "bun run format:check && bun run lint && bun run knip && bun run typecheck && bun run test && bun run test:node",
     "relay": "bun scripts/relay.ts",
-    "test": "bun test --no-env-file --no-install",
     "build": "bun scripts/build.ts",
     "pack": "bun scripts/pack.ts",
     "verify:packages": "bun scripts/verify-packages.ts"
   },
-  "devDependencies": {
-    "@types/bun": "1.4.3",
-    "typescript": "6.0.3",
-    "oxlint": "1.87.0",
-    "prettier": "3.9.10"
+  "workspaces": {
+    "packages": [
+      "packages/tunnel",
+      "packages/relay",
+      "oxlint-plugin-tunnel"
+    ],
+    "catalog": {
+      "@types/bun": "1.4.4"
+    }
   },
-  "packageManager": "bun@1.4.3",
-  "engines": {
-    "bun": "1.4.3"
-  },
+  "packageManager": "bun@1.4.4",
   "trustedDependencies": [],
-  "prettier": {
-    "useTabs": true,
-    "printWidth": 160
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "knip": "6.42.1",
+    "oxlint": "1.89.0",
+    "oxlint-tsgolint": "7.0.2005",
+    "typescript": "7.1.0-beta",
+    "vitest": "5.0.5"
   }
 }

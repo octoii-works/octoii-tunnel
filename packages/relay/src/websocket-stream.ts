@@ -48,7 +48,9 @@ export type WebSocketLink = {
 
 /** The connector's answer to a WebSocket stream, or why there was none. */
 export type WebSocketAnswer =
-	{ readonly accept: true; readonly protocol?: string } | { readonly accept: false; readonly status: number } | { readonly failed: "timeout" | "offline" };
+	| { readonly accept: true; readonly protocol?: string }
+	| { readonly accept: false; readonly status: number }
+	| { readonly failed: "timeout" | "offline" };
 
 /** One visitor's WebSocket on the relay. */
 export class WebSocketStream {

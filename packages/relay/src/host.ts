@@ -13,6 +13,8 @@ export interface RelayHost {
 	createDevice(record: DeviceRecord): Promise<boolean>;
 	/** Hands a request for the device to its session; `undefined` when the host upgraded it to a WebSocket. */
 	forward(deviceId: string, request: Request): Promise<Response | undefined>;
+	/** `length` bytes of the host's secure randomness, from which registration makes a device's id and credential. */
+	randomBytes(length: number): Uint8Array;
 }
 
 /** One device's record, as its session reads and removes it. */

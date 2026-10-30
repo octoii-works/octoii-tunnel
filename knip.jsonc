@@ -1,0 +1,29 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"workspaces": {
+		".": {
+			// The repository's scripts.
+			"entry": ["scripts/*.ts", "vitest.bun-test.ts"],
+			"project": ["scripts/**/*.ts", "*.ts"]
+		},
+		"oxlint-plugin-tunnel": {
+			// The plugin oxlint loads, and its rules' tests.
+			"entry": ["index.ts", "rules/**/*.test.ts"],
+			"project": ["**/*.ts"]
+		},
+		"packages/*": {
+			"entry": ["test/**/*.ts"],
+			"project": ["src/**/*.ts", "test/**/*.ts"]
+		},
+		"packages/relay": {
+			"entry": ["test/**/*.ts"],
+			"project": ["src/**/*.ts", "test/**/*.ts"],
+			// The Durable Object host's TypeScript project, tsconfig.worker.json, names its types.
+			"ignoreDependencies": ["@cloudflare/workers-types"]
+		}
+	},
+	// An export the module itself uses is kept as written; what knip reports is code nothing uses.
+	"ignoreExportsUsedInFile": true,
+	// `bun fmt` is Bun's formatter, not a package's binary.
+	"ignoreBinaries": ["fmt"]
+}

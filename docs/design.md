@@ -101,6 +101,9 @@ A host gives each device session three capabilities, and routes every request fo
 | `SessionSockets` | Accept a WebSocket, keep a small attachment on each one, list the live ones after the session resumes, and tell when each last sent a heartbeat |
 | `Clock` | The time, and timers that only need to fire while the session is awake (the hello deadline and stream idle deadlines), in the shape of the client's |
 
+The router, which registers devices, asks the host that serves its requests to create a device, to forward a
+request to a device's session, and for secure randomness, from which it makes each device's id and credential.
+
 These are plain interfaces, not a plugin system.
 
 ### Sleeping and waking

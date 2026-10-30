@@ -1,0 +1,20 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/tunnel"
+    },
+    {
+      "path": "packages/relay"
+    },
+    {
+      "path": "packages/relay/tsconfig.worker.json"
+    },
+    {
+      "path": "oxlint-plugin-tunnel"
+    },
+    {
+      "path": "tsconfig.json"
+    }
+  ]
+}

@@ -65,12 +65,14 @@ export function openVisitorSocket(relay: Running, device: Device, path: string, 
 	});
 }
 
+/** The next message a WebSocket receives. */
 export function nextMessage(socket: WebSocket): Promise<string | Uint8Array> {
 	return new Promise((resolve) =>
 		socket.addEventListener("message", (event) => resolve(typeof event.data === "string" ? event.data : new Uint8Array(event.data)), { once: true }),
 	);
 }
 
+/** The code a WebSocket closes with. */
 export function nextClose(socket: WebSocket): Promise<number> {
 	return new Promise((resolve) => socket.addEventListener("close", (event) => resolve(event.code), { once: true }));
 }

@@ -54,6 +54,7 @@ export function defineRelay(hooks: RelayHooks = {}): RelayDeployment {
 				const response = await createRelay(optionsOf(env, hooks)).handle(request, {
 					createDevice: async (record) => (await objectOf(record.id).fetch(createRequest(record, env.REGISTRATION_TOKEN))).status === 201,
 					forward: (deviceId, forwarded) => objectOf(deviceId).fetch(forwarded),
+					randomBytes: (length) => crypto.getRandomValues(new Uint8Array(length)),
 				});
 				return response ?? errorResponse("internal", "The relay failed");
 			} catch {

@@ -2,10 +2,12 @@ import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
+/** The repository's root. */
 export const ROOT = resolve(import.meta.dir, "..");
 /** The packages, each after the ones it depends on. */
 export const packages = ["tunnel", "relay"] as const;
 
+/** Runs a command and answers its output; throws with its output where it fails. */
 export async function run(command: string[], cwd = ROOT): Promise<string> {
 	const child = Bun.spawn(command, { cwd, stdout: "pipe", stderr: "pipe" });
 	const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -26,6 +28,7 @@ function strings(value: unknown): Record<string, string> {
 	return Object.fromEntries(entries);
 }
 
+/** A package's manifest: its name, version, exports and dependencies, checked. */
 export async function manifest(name: string) {
 	const raw: unknown = await Bun.file(join(ROOT, "packages", name, "package.json")).json();
 	if (!record(raw) || typeof raw["name"] !== "string" || typeof raw["version"] !== "string" || raw["license"] !== "MIT")
@@ -33,6 +36,7 @@ export async function manifest(name: string) {
 	return { raw, name: raw["name"], version: raw["version"], exports: strings(raw["exports"]), dependencies: strings(raw["dependencies"] ?? {}) };
 }
 
+/** Packs every package into `destination` as npm publishes it, and answers each package's tarball by name. */
 export async function pack(destination: string): Promise<Record<string, string>> {
 	await mkdir(destination, { recursive: true });
 	const staging = await mkdtemp(join(tmpdir(), "octoiitunnel-pack-"));

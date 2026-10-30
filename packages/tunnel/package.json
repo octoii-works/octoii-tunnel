@@ -29,5 +29,11 @@
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0"
+  },
+  "scripts": {
+    "test": "bun test --timeout=60000 --no-env-file --no-install ./test"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:"
   }
 }

@@ -113,6 +113,7 @@ export function createBunRelay(options: BunRelayOptions) {
 
 	const hostFor = (server: Server<SocketData>, original: Request): RelayHost => ({
 		createDevice: async (record) => devices.create(record),
+		randomBytes: (length) => crypto.getRandomValues(new Uint8Array(length)),
 		forward: async (deviceId, request) => {
 			if (devices.get(deviceId) === undefined) return errorResponse("not_found", "Unknown device");
 			const entry = entryOf(deviceId);
