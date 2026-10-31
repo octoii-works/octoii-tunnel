@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "octoii-tunnel-workspace",
+      "name": "octoii-tunnel",
       "devDependencies": {
         "@types/bun": "catalog:",
         "knip": "6.44.0",
