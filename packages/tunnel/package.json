@@ -1,6 +1,6 @@
 {
   "name": "@octoii-works/tunnel",
-  "version": "0.1.0-preview.1",
+  "version": "0.0.1",
   "description": "The octoiitunnel client and its wire format: a device's connector, a visitor's pairing and secure channels, and the protocol the relay speaks",
   "type": "module",
   "license": "MIT",
