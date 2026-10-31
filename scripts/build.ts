@@ -1,6 +1,7 @@
 /**
  * Compiles each package's JavaScript and declarations into its `dist/`, each after the packages it depends on. The
- * relay's `/worker` host compiles in a pass of its own, against the Workers types instead of the DOM and Bun ones.
+ * relay's `/worker` host compiles in a pass of its own, against the Workers types instead of the DOM and Bun ones, and
+ * its `/testing` suite in another, against Bun's alone.
  */
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -14,7 +15,9 @@ const DOM = ["ES2022", "DOM", "DOM.Iterable"];
 function passesOf(name: (typeof packages)[number]): readonly Pass[] {
 	if (name !== "relay") return [{ types: [], lib: DOM, include: "src/**/*.ts", exclude: [] }];
 	return [
-		{ types: ["bun"], lib: DOM, include: "src/**/*.ts", exclude: ["src/worker/**"] },
+		{ types: ["bun"], lib: DOM, include: "src/**/*.ts", exclude: ["src/worker/**", "src/testing/**"] },
+		// The suite opens Bun's WebSockets, with headers, which the DOM's types do not have.
+		{ types: ["bun"], lib: ["ES2022"], include: "src/testing/**/*.ts", exclude: [] },
 		{
 			types: [dirname(Bun.resolveSync("@cloudflare/workers-types/package.json", join(ROOT, "packages/relay")))],
 			lib: ["ES2022"],

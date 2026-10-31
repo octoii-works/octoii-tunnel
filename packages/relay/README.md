@@ -7,6 +7,7 @@ The octoiitunnel relay: the router, the device session, and hosts that run them.
   (`RelayHost`, `SessionHost`).
 - `@octoii-works/tunnel-relay/worker`: hosts with the Workers and Durable Object APIs.
 - `@octoii-works/tunnel-relay/bun`: one Bun process, device records in SQLite.
+- `@octoii-works/tunnel-relay/testing`: the relay's behavioral suite, which a host runs against itself under `bun test`.
 
 ```ts
 import { serveRelay } from "@octoii-works/tunnel-relay/bun";
@@ -29,3 +30,11 @@ export const DeviceObject = relay.DeviceObject;
 It needs a Durable Object binding `DEVICES` to `DeviceObject` (a SQLite-backed class), the variables `RELAY_ORIGIN`
 and `REGISTRATION_TOKEN`, and routes for the bare domain and `*.<domain>`. With the `enable_request_signal`
 compatibility flag the relay notices a visitor that went away at once; without it, when it next writes to the visitor.
+
+A deployment checks its own host with the suite this repository's hosts pass:
+
+```ts
+import { relaySuite } from "@octoii-works/tunnel-relay/testing";
+
+relaySuite("my host", async () => startMyRelay()); // resolves { origin, port, close() }
+```

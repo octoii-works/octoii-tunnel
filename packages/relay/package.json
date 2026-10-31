@@ -17,7 +17,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./bun": "./src/bun/index.ts",
-    "./worker": "./src/worker/index.ts"
+    "./worker": "./src/worker/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "files": [
     "dist",

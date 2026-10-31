@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { connectDevice, registerDevice } from "@octoii-works/tunnel";
 import { webPlatform } from "@octoii-works/tunnel/web";
 import { serveRelay } from "../src/bun/index.ts";
-import { cleanups, freePort, relaySuite, type Running, TOKEN, visit } from "./suite.ts";
+import { cleanups, freePort, relaySuite, type Running, TOKEN, visit } from "../src/testing/index.ts";
 
 /** A relay in this Bun process. */
 function startRelay(database = ":memory:", port = freePort()): Running {

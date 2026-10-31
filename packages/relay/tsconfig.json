@@ -13,6 +13,7 @@
   ],
   "exclude": [
     "src/bun",
+    "src/testing",
     "src/worker"
   ]
 }

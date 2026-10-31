@@ -1,7 +1,7 @@
 import { afterAll, beforeAll } from "bun:test";
 import { join } from "node:path";
 import { Miniflare } from "miniflare";
-import { freePort, relaySuite, type Running, TOKEN } from "./suite.ts";
+import { freePort, relaySuite, type Running, TOKEN } from "../src/testing/index.ts";
 
 /** The test entry bundled into one module, as workerd runs it. */
 let script = "";

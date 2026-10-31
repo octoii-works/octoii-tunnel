@@ -98,13 +98,13 @@
 	},
 	"overrides": [
 		{
-			// bun:test types `expect(promise).rejects` as returning nothing, yet it must be awaited.
-			"files": ["**/test/**"],
+			// bun:test types `expect(promise).rejects` as returning nothing, yet it must be awaited; the relay's suite is test code.
+			"files": ["**/test/**", "packages/relay/src/testing/**"],
 			"rules": { "typescript/await-thenable": "off", "tunnel/require-safety-comment-for-type-assertion": "off" }
 		},
 		{
 			// A test file's `describe` callback groups its cases: its length is the number of cases, not one function's size.
-			"files": ["**/test/**"],
+			"files": ["**/test/**", "packages/relay/src/testing/**"],
 			"rules": { "max-lines-per-function": "off" }
 		},
 		{
@@ -115,7 +115,7 @@
 		},
 		{
 			// What a platform gives: the web standards' own, Bun's, and a Durable Object host's.
-			"files": ["packages/tunnel/src/web.ts", "packages/tunnel/src/bun/**", "packages/relay/src/bun/**", "packages/relay/src/worker/**"],
+			"files": ["packages/tunnel/src/web.ts", "packages/tunnel/src/bun/**", "packages/relay/src/bun/**", "packages/relay/src/worker/**", "packages/relay/src/testing/**"],
 			"rules": { "tunnel/no-host-platform": "off" }
 		},
 		{

@@ -1,4 +1,7 @@
-/** One behavioral suite of the relay, run against every host. */
+/**
+ * The relay's behavioral suite, which every host runs against itself: this repository's Bun and Workers hosts, and a
+ * deployment's own, as `@octoii-works/tunnel-relay/testing`. It runs under `bun test`.
+ */
 import { afterEach, describe, expect, test } from "bun:test";
 import {
 	type Connector,
