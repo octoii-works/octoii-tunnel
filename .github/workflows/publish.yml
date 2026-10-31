@@ -42,7 +42,7 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
       - name: Use an npm that publishes through trusted publishing
-        run: npm install -g npm@11.6.2
+        run: npm install -g npm@12.2.1
 
       - name: Configure the git committer
         run: |
