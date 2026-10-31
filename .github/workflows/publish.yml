@@ -1,5 +1,5 @@
 name: Publish
-run-name: "release ${{ inputs.version }}"
+run-name: "release ${{ inputs.version || inputs.bump }}"
 
 # Releases both packages at one version under a dist-tag, @octoii-works/tunnel first and then the relay, which depends
 # on that same version, then pushes the release commit and tag. npm trusts this workflow (trusted publishing): no npm token is stored, and npm adds provenance once the
@@ -8,15 +8,20 @@ run-name: "release ${{ inputs.version }}"
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "The version, such as 0.1.0 or the preview 0.1.0-preview.1"
-        type: string
-        required: true
-      tag:
-        description: "The dist-tag: next for previews, latest for releases"
+      bump:
+        description: "patch: every release, breaking or not"
         type: choice
-        options: [next, latest]
-        default: next
+        options: [patch]
+        default: patch
+      version:
+        description: "An exact version instead of a bump, for a complete rewrite or a preview such as 0.0.2-preview.0 (optional)"
+        type: string
+        required: false
+      tag:
+        description: "The dist-tag: latest for releases, next for previews"
+        type: choice
+        options: [latest, next]
+        default: latest
 
 concurrency: publish
 
@@ -45,16 +50,17 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Set the version
+        id: version
         env:
-          VERSION: ${{ inputs.version }}
-        run: bun scripts/version.ts "$VERSION"
+          TARGET: ${{ inputs.version || inputs.bump }}
+        run: echo "version=$(bun scripts/version.ts "$TARGET")" >> "$GITHUB_OUTPUT"
 
       - run: bun run check
       - run: bun run pack
 
       - name: Publish to npm
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ inputs.tag }}
         run: |
           for name in octoii-works-tunnel octoii-works-tunnel-relay; do
@@ -63,7 +69,7 @@ jobs:
 
       - name: Commit, tag and push the release
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
           HUSKY: "0"
         run: |
           git add packages/*/package.json
