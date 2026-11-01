@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- `offerPairing(at)` offers a pairing at another address the endpoint answers at, such as its direct listener's: the visitor pairs there without the relay.
+
 ## [0.0.2] - 2026-10-31
 
 - No change of its own: released with the relay's `/testing`.

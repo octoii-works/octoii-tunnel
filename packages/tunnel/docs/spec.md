@@ -106,7 +106,9 @@ passes a clock it moves.
 `createSecureEndpoint({ address, store, handler, platform })` is the device's side of secure mode, apart from any
 connection: it keeps the static key and the paired visitors in `store`, offers pairings for `address`, runs the
 handshake on each socket it is given, answers the fetch-style requests of its channels with `handler`, and tells the
-service of each channel it accepts. The connector gives it the secure streams that come through the relay; a direct
+service of each channel it accepts. `offerPairing(at)` offers a pairing at another address the endpoint answers at,
+such as its direct listener's on the device's own network: the visitor pairs there, without the relay, and opens its
+channels there unless given another address. The connector gives it the secure streams that come through the relay; a direct
 listener gives it the sockets that come over the device's own network. One endpoint serves both, so a visitor paired
 through one path is known on the other, and forgetting it closes its channels on both.
 

@@ -45,9 +45,12 @@ export class SecureEndpoint {
 		this.offers = new PairingOffers(options.platform);
 	}
 
-	/** A pairing offer to show a visitor, as a link or a QR code of it; it works once, for five minutes. */
-	async offerPairing(): Promise<PairingOffer> {
-		return this.offers.create(this.options.address, (await this.staticKey()).publicKey);
+	/**
+	 * A pairing offer to show a visitor, as a link or a QR code of it, at the endpoint's address or another it answers at;
+	 * it works once, for five minutes.
+	 */
+	async offerPairing(at: string = this.options.address): Promise<PairingOffer> {
+		return this.offers.create(at, (await this.staticKey()).publicKey);
 	}
 
 	/**

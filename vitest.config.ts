@@ -12,7 +12,10 @@ import { defineConfig } from "vitest/config";
 const NEEDS_BUN = /\bBun\.|from "bun(:sqlite)?"/;
 
 /** Test files that reach Bun through a `/bun` entry, which no import of theirs shows. */
-const THROUGH_BUN_ENTRIES: readonly string[] = [];
+const THROUGH_BUN_ENTRIES: readonly string[] = [
+	// The direct listener, on `Bun.serve`.
+	"packages/tunnel/test/direct.test.ts",
+];
 
 /** Whether a test file, or a helper of its folder it imports, needs Bun, following helpers that import helpers. */
 function needsBun(file: string, seen = new Set<string>()): boolean {
