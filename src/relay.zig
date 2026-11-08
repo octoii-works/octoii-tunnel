@@ -7,7 +7,6 @@ pub const Router = @import("relay/Router.zig");
 pub const Book = @import("relay/Book.zig");
 pub const Link = @import("relay/Link.zig");
 pub const Server = @import("relay/Server.zig");
-pub const Forwarder = @import("relay/Forwarder.zig");
 
 test {
     _ = frame;
@@ -16,5 +15,4 @@ test {
     _ = Book;
     _ = Link;
     _ = Server;
-    _ = Forwarder;
 }

@@ -27,8 +27,6 @@ work: Io.Condition = .init,
 /// Broadcast as the loop has worked: sessions ready or ended, bytes come, room made.
 changed: Io.Condition = .init,
 relays: std.ArrayList(*Relay) = .empty,
-/// Told of what comes from the relays that no session is for.
-listener: ?Listener = null,
 /// Frames from relays, not yet taken.
 arrived: std.ArrayList(Arrival) = .empty,
 /// Sessions peers opened, ready and not yet taken.
@@ -58,16 +56,6 @@ const Relay = struct {
     lock: Io.Mutex = .init,
     keeper: ?Io.Future(void) = null,
     next_ping: u64,
-};
-
-/// What a station's owner hears of its relays besides sessions: the frames between a home and its machine, and its
-/// links' ending and coming back. Called on the task reading the link, which it must not hold up.
-pub const Listener = struct {
-    context: *anyopaque,
-    /// A frame no session is for, good till the call returns.
-    frame: *const fn (context: *anyopaque, number: u16, bytes: []const u8) void,
-    linked: *const fn (context: *anyopaque, number: u16) void,
-    unlinked: *const fn (context: *anyopaque, number: u16) void,
 };
 
 /// A frame a relay sent, in the station's allocator.
@@ -150,35 +138,16 @@ pub fn join(station: *Station, address: []const u8, home: Key) (relay.Link.Error
     return number;
 }
 
-/// Has `listener` told of what comes from the station's relays that no session is for. Set before the station joins a
-/// relay, for as long as it is on one.
-pub fn listen(station: *Station, listener: Listener) void {
-    station.listener = listener;
-}
-
-/// Sends a frame on the link to the relay of `number`; `Gone` while the station joins it again.
-pub fn sendFrame(station: *Station, number: u16, bytes: []const u8) !void {
-    station.lock.lockUncancelable(station.io);
-    const kept = station.relays.items[number];
-    station.lock.unlock(station.io);
-    kept.lock.lockUncancelable(station.io);
-    defer kept.lock.unlock(station.io);
-    const link = kept.link orelse return error.Gone;
-    try link.send(bytes);
-}
-
 /// Keeps the station on a relay till the station stops: its link read, and the relay joined again where the link ends.
 fn keepRelay(station: *Station, kept: *Relay, number: u16) void {
     while (true) {
         station.readRelay(kept.link.?, number);
-        if (station.listener) |listener| listener.unlinked(listener.context, number);
         kept.lock.lockUncancelable(station.io);
         const ended = kept.link.?;
         kept.link = null;
         kept.lock.unlock(station.io);
         ended.close();
         if (!station.rejoin(kept)) return;
-        if (station.listener) |listener| listener.linked(listener.context, number);
     }
 }
 
@@ -189,10 +158,6 @@ fn readRelay(station: *Station, link: *relay.Link, number: u16) void {
         const received = link.receive() catch return;
         switch (received) {
             .frame => |bytes| {
-                if (relay.frame.isHomeFrame(bytes)) {
-                    if (station.listener) |listener| listener.frame(listener.context, number, bytes);
-                    continue;
-                }
                 const owned = station.allocator.dupe(u8, bytes) catch return;
                 station.lock.lockUncancelable(io);
                 defer station.lock.unlock(io);

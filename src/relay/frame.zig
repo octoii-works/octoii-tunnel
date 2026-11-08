@@ -1,8 +1,6 @@
 //! The frames a peer and a relay say to each other, each whole in one message of the link between them: the datagrams
 //! a peer sends another by its key, which the relay forwards as from the sender; that a key is not on the relay; and,
-//! on a link that does not authenticate its peer itself, the challenge the relay sets and the peer's answer by its key;
-//! and, between a home and its machine alone, the byte streams the home opens to the machine's routes, each direction
-//! paced by the window its receiver grants, the names of those routes, and a route's removal.
+//! on a link that does not authenticate its peer itself, the challenge the relay sets and the peer's answer by its key.
 const std = @import("std");
 const Identity = @import("../Identity.zig");
 
@@ -15,13 +13,6 @@ pub const Type = enum(u8) {
     challenge = 0x10,
     answer = 0x11,
     welcome = 0x12,
-    stream_open = 0x20,
-    stream_data = 0x21,
-    stream_end = 0x22,
-    stream_reset = 0x23,
-    stream_window = 0x24,
-    routes = 0x25,
-    route_remove = 0x26,
     _,
 };
 
@@ -33,15 +24,6 @@ pub const max_datagram = 1500;
 
 /// The length of a challenge's nonce.
 pub const nonce_length = 32;
-
-/// The bytes before a stream's data in its frame: the type and the stream's number.
-pub const stream_header = 1 + 4;
-
-/// The most bytes of a stream one frame holds.
-pub const max_stream_data = max_length - stream_header;
-
-/// The longest name of a route.
-pub const max_route = 50;
 
 /// A frame, read from its bytes, which it points into.
 pub const Frame = union(enum) {
@@ -55,38 +37,7 @@ pub const Frame = union(enum) {
     answer: Answer,
     /// The relay took the peer's answer: the peer is on the relay by its key.
     welcome,
-    /// The home opens a stream to the machine's route of this name.
-    stream_open: StreamOpen,
-    /// Bytes of a stream, within the window its receiver granted.
-    stream_data: StreamData,
-    /// Its sender has no more bytes for this stream.
-    stream_end: u32,
-    /// This stream is given up, both ways.
-    stream_reset: u32,
-    /// The receiver of a stream takes this many more bytes of it.
-    stream_window: StreamWindow,
-    /// The machine's routes by name, each ended by a line feed.
-    routes: []const u8,
-    /// The machine is asked to remove its route of this name.
-    route_remove: []const u8,
 };
-
-/// A stream opened to a route.
-pub const StreamOpen = struct { id: u32, route: []const u8 };
-
-/// Bytes of a stream.
-pub const StreamData = struct { id: u32, bytes: []const u8 };
-
-/// More of a stream its receiver takes.
-pub const StreamWindow = struct { id: u32, grant: u32 };
-
-/// Whether `name` is a route's name: lowercase letters, digits and inner hyphens, within the longest, so that it makes
-/// one label of a host name with a machine's id.
-pub fn isRouteName(name: []const u8) bool {
-    if (name.len == 0 or name.len > max_route or name[0] == '-' or name[name.len - 1] == '-') return false;
-    for (name) |byte| if (!(std.ascii.isLower(byte) or std.ascii.isDigit(byte) or byte == '-')) return false;
-    return true;
-}
 
 /// Datagrams to or from a peer, as a frame holds them: each its length, two bytes in network order, then its bytes.
 pub const Datagrams = struct {
@@ -145,38 +96,8 @@ pub fn decode(bytes: []const u8) error{InvalidFrame}!Frame {
             _ = try exactly(body, 0);
             return .welcome;
         },
-        .stream_open => {
-            const id = try streamOf(body);
-            if (!isRouteName(body[4..])) return error.InvalidFrame;
-            return .{ .stream_open = .{ .id = id, .route = body[4..] } };
-        },
-        .stream_data => return .{ .stream_data = .{ .id = try streamOf(body), .bytes = body[4..] } },
-        .stream_end => return .{ .stream_end = std.mem.readInt(u32, try exactly(body, 4), .big) },
-        .stream_reset => return .{ .stream_reset = std.mem.readInt(u32, try exactly(body, 4), .big) },
-        .stream_window => {
-            const window = try exactly(body, 8);
-            return .{ .stream_window = .{ .id = std.mem.readInt(u32, window[0..4], .big), .grant = std.mem.readInt(u32, window[4..8], .big) } };
-        },
-        .routes => {
-            var rest = body;
-            while (rest.len > 0) {
-                const end = std.mem.indexOfScalar(u8, rest, '\n') orelse return error.InvalidFrame;
-                if (!isRouteName(rest[0..end])) return error.InvalidFrame;
-                rest = rest[end + 1 ..];
-            }
-            return .{ .routes = body };
-        },
-        .route_remove => {
-            if (!isRouteName(body)) return error.InvalidFrame;
-            return .{ .route_remove = body };
-        },
         _ => return error.InvalidFrame,
     }
-}
-
-fn streamOf(body: []const u8) error{InvalidFrame}!u32 {
-    if (body.len < 4) return error.InvalidFrame;
-    return std.mem.readInt(u32, body[0..4], .big);
 }
 
 fn exactly(body: []const u8, comptime length: usize) error{InvalidFrame}!*const [length]u8 {
@@ -223,60 +144,11 @@ pub fn writeWelcome(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.writeByte(@backingInt(Type.welcome));
 }
 
-/// Writes the frame opening stream `id` to the route `name`.
-pub fn writeStreamOpen(writer: *std.Io.Writer, id: u32, name: []const u8) std.Io.Writer.Error!void {
-    try writer.writeByte(@backingInt(Type.stream_open));
-    try writer.writeInt(u32, id, .big);
-    try writer.writeAll(name);
-}
-
-/// Writes the frame of `bytes` of stream `id`.
-pub fn writeStreamData(writer: *std.Io.Writer, id: u32, bytes: []const u8) std.Io.Writer.Error!void {
-    std.debug.assert(bytes.len <= max_stream_data);
-    try writer.writeByte(@backingInt(Type.stream_data));
-    try writer.writeInt(u32, id, .big);
-    try writer.writeAll(bytes);
-}
-
-/// Writes the frame of `kind`, `stream_end` or `stream_reset`, of stream `id`.
-pub fn writeStreamSignal(writer: *std.Io.Writer, kind: Type, id: u32) std.Io.Writer.Error!void {
-    std.debug.assert(kind == .stream_end or kind == .stream_reset);
-    try writer.writeByte(@backingInt(kind));
-    try writer.writeInt(u32, id, .big);
-}
-
-/// Writes the frame granting `grant` more bytes of stream `id`.
-pub fn writeStreamWindow(writer: *std.Io.Writer, id: u32, grant: u32) std.Io.Writer.Error!void {
-    try writer.writeByte(@backingInt(Type.stream_window));
-    try writer.writeInt(u32, id, .big);
-    try writer.writeInt(u32, grant, .big);
-}
-
-/// Writes the frame of a machine's routes, by their `names`.
-pub fn writeRoutes(writer: *std.Io.Writer, names: []const []const u8) std.Io.Writer.Error!void {
-    try writer.writeByte(@backingInt(Type.routes));
-    for (names) |name| {
-        try writer.writeAll(name);
-        try writer.writeByte('\n');
-    }
-}
-
-/// Writes the frame asking a machine to remove its route `name`.
-pub fn writeRouteRemove(writer: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void {
-    try writer.writeByte(@backingInt(Type.route_remove));
-    try writer.writeAll(name);
-}
-
-/// Whether `bytes` are a frame between a home and its machine, which no session is for.
-pub fn isHomeFrame(bytes: []const u8) bool {
-    return bytes.len > 0 and bytes[0] >= @backingInt(Type.stream_open) and bytes[0] <= @backingInt(Type.route_remove);
-}
-
 /// The peer a frame a peer sent is for: the key its datagrams name; null where it is no frame a peer sends another.
 pub fn addresseeOf(bytes: []const u8) ?Key {
     return switch (decode(bytes) catch return null) {
         .datagrams => |datagrams| datagrams.key,
-        else => null,
+        .gone, .challenge, .answer, .welcome => null,
     };
 }
 
@@ -352,43 +224,6 @@ test "what is no frame — empty, of no type, cut short, or a datagram's length 
     bytes[34] = 9;
     try testing.expectError(error.InvalidFrame, decode(&bytes));
     try testing.expectError(error.InvalidFrame, decode(bytes[0..33]));
-}
-
-test "the frames of a stream and of routes read back as written" {
-    var buffer: [256]u8 = undefined;
-    var writer: std.Io.Writer = .fixed(&buffer);
-    try writeStreamOpen(&writer, 7, "api-2");
-    try testing.expectEqual(7, (try decode(writer.buffered())).stream_open.id);
-    try testing.expectEqualStrings("api-2", (try decode(writer.buffered())).stream_open.route);
-    writer = .fixed(&buffer);
-    try writeStreamData(&writer, 8, "bytes");
-    try testing.expectEqualStrings("bytes", (try decode(writer.buffered())).stream_data.bytes);
-    writer = .fixed(&buffer);
-    try writeStreamSignal(&writer, .stream_end, 9);
-    try testing.expectEqual(9, (try decode(writer.buffered())).stream_end);
-    writer = .fixed(&buffer);
-    try writeStreamSignal(&writer, .stream_reset, 10);
-    try testing.expectEqual(10, (try decode(writer.buffered())).stream_reset);
-    writer = .fixed(&buffer);
-    try writeStreamWindow(&writer, 11, 4096);
-    try testing.expectEqual(StreamWindow{ .id = 11, .grant = 4096 }, (try decode(writer.buffered())).stream_window);
-    writer = .fixed(&buffer);
-    try writeRoutes(&writer, &.{ "api", "webhooks" });
-    try testing.expectEqualStrings("api\nwebhooks\n", (try decode(writer.buffered())).routes);
-    writer = .fixed(&buffer);
-    try writeRouteRemove(&writer, "api");
-    try testing.expectEqualStrings("api", (try decode(writer.buffered())).route_remove);
-}
-
-test "a route's name makes one label of a host name" {
-    try testing.expect(isRouteName("api"));
-    try testing.expect(isRouteName("3e9b1c07"));
-    try testing.expect(isRouteName("my-app-2"));
-    for ([_][]const u8{ "", "-api", "api-", "API", "a.b", "a_b" }) |name| try testing.expect(!isRouteName(name));
-    try testing.expect(!isRouteName(&repeated('a', max_route + 1)));
-    try testing.expectError(error.InvalidFrame, decode("\x20\x00\x00\x00\x01BAD"));
-    try testing.expectError(error.InvalidFrame, decode("\x25api"));
-    try testing.expectError(error.InvalidFrame, decode("\x21\x00"));
 }
 
 fn repeated(comptime byte: u8, comptime count: usize) [count]u8 {
