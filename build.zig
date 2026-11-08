@@ -22,7 +22,8 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run the tunnel's tests");
     test_step.dependOn(&run_tests.step);
 
-    // The relay as a WebAssembly module, for a host that holds its links itself, as a Durable Object does.
+    // The relay on Cloudflare Workers: its WebAssembly module and the Worker and Durable Object that hold its links,
+    // installed together in `relay/` and given to dependents as the path `relay-worker`.
     const relay_wasm = b.addExecutable(.{ .name = "relay", .root_module = b.createModule(.{
         .root_source_file = b.path("src/relay_wasm.zig"),
         .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
@@ -30,14 +31,19 @@ pub fn build(b: *std.Build) void {
     }) });
     relay_wasm.entry = .disabled;
     relay_wasm.rdynamic = true;
-    const install_relay_wasm = b.addInstallArtifact(relay_wasm, .{});
-    b.step("relay-wasm", "Build the relay as a WebAssembly module").dependOn(&install_relay_wasm.step);
+    const relay_worker = b.addWriteFiles();
+    _ = relay_worker.addCopyFile(relay_wasm.getEmittedBin(), "relay.wasm");
+    _ = relay_worker.addCopyFile(b.path("src/relay/worker.js"), "worker.js");
+    _ = relay_worker.addCopyFile(b.path("src/relay/worker.d.ts"), "worker.d.ts");
+    b.addNamedLazyPath("relay-worker", relay_worker.getDirectory());
+    const install_relay_worker = b.addInstallDirectory(.{ .source_dir = relay_worker.getDirectory(), .install_dir = .prefix, .install_subdir = "relay" });
+    b.step("relay-worker", "Build the relay for Cloudflare Workers into relay/").dependOn(&install_relay_worker.step);
 
     const format = b.addFmt(.{ .paths = &.{ b.path("build.zig"), b.path("src") }, .check = true });
     const check_step = b.step("check", "Check the tunnel: its sources formatted and its tests passing");
     check_step.dependOn(&format.step);
     check_step.dependOn(&run_tests.step);
-    check_step.dependOn(&install_relay_wasm.step);
+    check_step.dependOn(&install_relay_worker.step);
 }
 
 /// picoquic's transport, as its own build lists it, without what the tunnel does itself: the sockets and their loops, the
