@@ -2,8 +2,8 @@
 //! later, and time moves on to the next arrival or the next time an endpoint asked to be called.
 const std = @import("std");
 const Endpoint = @import("Endpoint.zig");
-const Connection = @import("Connection.zig");
 const Identity = @import("Identity.zig");
+const scenario = @import("testing.zig");
 
 const testing = std.testing;
 const IpAddress = std.Io.net.IpAddress;
@@ -39,7 +39,7 @@ const Link = struct {
     }
 
     /// Runs the link till `done` holds of it; an error where it does not within the steps a session needs.
-    fn runUntil(link: *Link, context: anytype, comptime done: fn (@TypeOf(context), *Link) bool) !void {
+    pub fn runUntil(link: *Link, context: anytype, comptime done: anytype) !void {
         for (0..100_000) |_| {
             if (done(context, link)) return;
             try link.step();
@@ -84,35 +84,6 @@ const Link = struct {
     }
 };
 
-/// Every event an endpoint told, kept in order as the link runs.
-const Told = struct {
-    events: std.ArrayList(Endpoint.Event) = .empty,
-
-    fn take(told: *Told, endpoint: *Endpoint) !void {
-        while (endpoint.nextEvent()) |event| try told.events.append(testing.allocator, event);
-    }
-
-    fn has(told: *const Told, tag: std.meta.Tag(Endpoint.Event)) bool {
-        for (told.events.items) |event| if (event == tag) return true;
-        return false;
-    }
-
-    fn deinit(told: *Told) void {
-        told.events.deinit(testing.allocator);
-    }
-};
-
-/// The events of both sides of a link, as it runs.
-const Watched = struct {
-    client: Told = .{},
-    server: Told = .{},
-
-    fn deinit(watched: *Watched) void {
-        watched.client.deinit();
-        watched.server.deinit();
-    }
-};
-
 fn linkOf(client: *Endpoint, server: *Endpoint, now: u64) !Link {
     return .{
         .client = .{ .endpoint = client, .at = try .parseLiteral("10.0.0.1:5000") },
@@ -121,112 +92,24 @@ fn linkOf(client: *Endpoint, server: *Endpoint, now: u64) !Link {
     };
 }
 
-fn bothReady(watched: *Watched, link: *Link) bool {
-    watched.client.take(link.client.endpoint) catch return true;
-    watched.server.take(link.server.endpoint) catch return true;
-    return watched.client.has(.connected) and watched.server.has(.accepted);
-}
-
-fn bothClosed(watched: *Watched, link: *Link) bool {
-    watched.client.take(link.client.endpoint) catch return true;
-    watched.server.take(link.server.endpoint) catch return true;
-    return watched.client.has(.closed) and watched.server.has(.closed);
-}
-
-fn clientClosed(watched: *Watched, link: *Link) bool {
-    watched.client.take(link.client.endpoint) catch return true;
-    watched.server.take(link.server.endpoint) catch return true;
-    return watched.client.has(.closed);
-}
-
-/// What one stream of a session read, till its end.
-const Reading = struct {
-    connection: *Connection,
-    stream: u64,
-    bytes: std.ArrayList(u8) = .empty,
-    ended: bool = false,
-
-    fn deinit(reading: *Reading) void {
-        reading.bytes.deinit(testing.allocator);
-    }
-};
-
-fn readToEnd(reading: *Reading, link: *Link) bool {
-    _ = link;
-    var buffer: [64]u8 = undefined;
-    while (reading.connection.read(reading.stream, &buffer)) |length| {
-        if (length == 0) return false;
-        reading.bytes.appendSlice(testing.allocator, buffer[0..length]) catch return true;
-    }
-    reading.ended = true;
-    return true;
-}
-
-fn connectionOf(told: *const Told, tag: std.meta.Tag(Endpoint.Event)) *Connection {
-    for (told.events.items) |event| switch (event) {
-        .accepted, .connected, .closed => |connection| if (event == tag) return connection,
-        .readable => {},
-    };
-    unreachable;
-}
-
-const start: u64 = 1_000_000;
-
-test "two endpoints hold a session: each knows the other's key, and a stream carries bytes each way to its end" {
+test "two endpoints hold a session over a direct link: each knows the other's key, and a stream carries bytes each way to its end" {
     const client_identity = Identity.generate(testing.io);
     const server_identity = Identity.generate(testing.io);
-    const client = try Endpoint.init(testing.allocator, testing.io, client_identity, start, .{});
+    const client = try Endpoint.init(testing.allocator, testing.io, client_identity, scenario.start, .{});
     defer client.deinit();
-    const server = try Endpoint.init(testing.allocator, testing.io, server_identity, start, .{});
+    const server = try Endpoint.init(testing.allocator, testing.io, server_identity, scenario.start, .{});
     defer server.deinit();
-    var link = try linkOf(client, server, start);
+    var link = try linkOf(client, server, scenario.start);
     defer link.deinit();
-    var watched: Watched = .{};
-    defer watched.deinit();
-
-    const opened = try client.connect(server_identity.publicKey(), link.server.at, link.now);
-    try link.runUntil(&watched, bothReady);
-    try testing.expectEqual(opened, connectionOf(&watched.client, .connected));
-    const accepted = connectionOf(&watched.server, .accepted);
-    try testing.expect(accepted.peer.eql(client_identity.publicKey()));
-    try testing.expect(opened.peer.eql(server_identity.publicKey()));
-
-    const stream = try opened.openStream();
-    try opened.write(stream, "hello, ");
-    try opened.write(stream, "machine");
-    try opened.shutdown(stream);
-    var asked: Reading = .{ .connection = accepted, .stream = stream };
-    defer asked.deinit();
-    try link.runUntil(&asked, readToEnd);
-    try testing.expectEqualStrings("hello, machine", asked.bytes.items);
-
-    try accepted.write(stream, "hello, device");
-    try accepted.shutdown(stream);
-    var answered: Reading = .{ .connection = opened, .stream = stream };
-    defer answered.deinit();
-    try link.runUntil(&answered, readToEnd);
-    try testing.expectEqualStrings("hello, device", answered.bytes.items);
-
-    opened.close(0);
-    try link.runUntil(&watched, bothClosed);
-    client.release(opened);
-    server.release(connectionOf(&watched.server, .closed));
+    try scenario.expectSession(&link, link.server.at, client_identity, server_identity);
 }
 
-test "a session to a peer that shows another key than the one expected never becomes ready" {
-    const server_identity = Identity.generate(testing.io);
-    const client = try Endpoint.init(testing.allocator, testing.io, Identity.generate(testing.io), start, .{});
+test "a session over a direct link to a peer that shows another key than the one expected never becomes ready" {
+    const client = try Endpoint.init(testing.allocator, testing.io, Identity.generate(testing.io), scenario.start, .{});
     defer client.deinit();
-    const server = try Endpoint.init(testing.allocator, testing.io, server_identity, start, .{});
+    const server = try Endpoint.init(testing.allocator, testing.io, Identity.generate(testing.io), scenario.start, .{});
     defer server.deinit();
-    var link = try linkOf(client, server, start);
+    var link = try linkOf(client, server, scenario.start);
     defer link.deinit();
-    var watched: Watched = .{};
-    defer watched.deinit();
-
-    const opened = try client.connect(Identity.generate(testing.io).publicKey(), link.server.at, link.now);
-    try link.runUntil(&watched, clientClosed);
-    try testing.expect(!watched.client.has(.connected));
-    try testing.expect(!watched.server.has(.accepted));
-    client.release(opened);
+    try scenario.expectAnotherKeyRefused(&link, link.server.at);
 }

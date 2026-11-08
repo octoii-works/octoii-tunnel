@@ -4,6 +4,7 @@ const std = @import("std");
 pub const Identity = @import("Identity.zig");
 pub const Endpoint = @import("Endpoint.zig");
 pub const Connection = @import("Connection.zig");
+pub const relay = @import("relay.zig");
 
 test {
     _ = @import("host.zig");
@@ -13,4 +14,6 @@ test {
     _ = @import("certificate.zig");
     _ = @import("address.zig");
     _ = @import("session_test.zig");
+    _ = @import("relay_test.zig");
+    _ = relay;
 }
