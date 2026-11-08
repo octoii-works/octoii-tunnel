@@ -24,6 +24,10 @@ var outgoing: std.ArrayList(u8) = .empty;
 /// The message read last, good till the next is read.
 var message: []const u8 = &.{};
 var page: ?*Page = null;
+/// The key the page's link to the relay goes by: made anew for each page, as a home keeps one link for a key, so that a
+/// person's tabs and reloads do not displace each other, and the relay never sees the device's own key, which the session
+/// alone shows, sealed.
+var link_identity: Identity = undefined;
 /// The relay's host, as the page reached it, which its answer to the relay's challenge signs.
 var relay_host: [253]u8 = undefined;
 
@@ -52,7 +56,7 @@ export fn tunnel_host() [*]u8 {
 export fn tunnel_admit(length: usize, host_length: usize) i32 {
     switch (frame.decode(exchange[0..length]) catch return 0) {
         .challenge => |nonce| {
-            const answer = authentication.answer(page.?.endpoint.identity, relay_host[0..host_length], nonce) catch return 0;
+            const answer = authentication.answer(link_identity, relay_host[0..host_length], nonce) catch return 0;
             var writer: std.Io.Writer = .fixed(&exchange);
             frame.writeAnswer(&writer, answer) catch return 0;
             return @intCast(writer.buffered().len);
@@ -79,13 +83,23 @@ export fn tunnel_message_length() usize {
 /// Starts the page's session side, its identity's seed in the exchange: 1, or 0.
 export fn tunnel_start(now: f64) u32 {
     const identity = Identity.fromSeed(exchange[0..Identity.seed_length].*) catch return 0;
+    link_identity = Identity.generate(io());
     page = Page.init(allocator, io(), identity, microseconds(now)) catch return 0;
     return 1;
 }
 
-/// Writes in the exchange the text of the page's own key: its length.
-export fn tunnel_key() usize {
-    const text = page.?.endpoint.identity.publicKey().text();
+/// Writes in the exchange the text of the key the page's link to the relay goes by: its length.
+export fn tunnel_link_key() usize {
+    return writeKey(link_identity);
+}
+
+/// Writes in the exchange the text of the device's key, which the session shows the machine: its length.
+export fn tunnel_device_key() usize {
+    return writeKey(page.?.endpoint.identity);
+}
+
+fn writeKey(identity: Identity) usize {
+    const text = identity.publicKey().text();
     @memcpy(exchange[0..text.len], &text);
     return text.len;
 }

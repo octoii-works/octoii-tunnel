@@ -103,7 +103,8 @@ export class Tunnel {
 
 	/**
 	 * Opens a session to the machine of the key `machine`, through the relay at `relay`, a `ws` or `wss` address, for the
-	 * device whose key is made from the 32 bytes `seed`; resolved once the session is ready.
+	 * device whose key is made from the 32 bytes `seed`; resolved once the session is ready. The link to the relay goes by
+	 * a key of its own, made for this session, so that a device's tabs do not displace each other there.
 	 */
 	static async open({ module, relay, machine, seed }) {
 		let memory = null;
@@ -113,7 +114,7 @@ export class Tunnel {
 		const exports = instance.exports;
 		new Uint8Array(memory.buffer, exports.tunnel_exchange(), 32).set(seed);
 		if (exports.tunnel_start(clock()) !== 1) throw new TunnelError("the session did not start");
-		const key = decoder.decode(new Uint8Array(memory.buffer, exports.tunnel_exchange(), exports.tunnel_key()));
+		const key = decoder.decode(new Uint8Array(memory.buffer, exports.tunnel_exchange(), exports.tunnel_link_key()));
 		const host = encoder.encode(new URL(relay).hostname);
 		new Uint8Array(memory.buffer, exports.tunnel_host(), host.length).set(host);
 		const link = new WebSocket(`${relay}/${machine}?key=${key}`);
@@ -128,9 +129,9 @@ export class Tunnel {
 		return STATES[this.#module.tunnel_state()];
 	}
 
-	/** The text of this device's key. */
+	/** The text of this device's key, which the session shows the machine. */
 	get key() {
-		return decoder.decode(this.#bytes(this.#module.tunnel_exchange(), this.#module.tunnel_key()));
+		return decoder.decode(this.#bytes(this.#module.tunnel_exchange(), this.#module.tunnel_device_key()));
 	}
 
 	#bytes(pointer, length) {
