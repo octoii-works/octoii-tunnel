@@ -8,6 +8,13 @@ pub const relay = @import("relay.zig");
 pub const Station = @import("Station.zig");
 pub const http3 = @import("http3.zig");
 
+// What the C libraries call — the allocations they make and the crypto they are given — is exported whatever of the
+// tunnel a program uses.
+comptime {
+    _ = @import("allocation.zig");
+    _ = @import("crypto.zig");
+}
+
 test {
     _ = @import("host.zig");
     _ = @import("allocation.zig");
