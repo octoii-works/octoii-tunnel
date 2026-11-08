@@ -2,6 +2,7 @@
 //! reach, or a test: each peer's link served on the host's io as a task of its own, the peer admitted by its answer to
 //! the relay's challenge, its frames routed by the relay's router to the link of the peer they are for. The router and
 //! the links are the server's, under its lock, which a frame is forwarded under, so no link goes while it is written.
+//! As the server stops, every connection it serves is shut down, and each link's task ends as it reads the end.
 const Server = @This();
 const std = @import("std");
 const Identity = @import("../Identity.zig");
@@ -20,6 +21,8 @@ lock: Io.Mutex = .init,
 router: Router = .{},
 links: std.AutoHashMapUnmanaged(Router.Link, *Peer) = .empty,
 next_link: Router.Link = 1,
+/// Every connection the server serves, from its accepting on.
+served: std.AutoArrayHashMapUnmanaged(Io.net.Socket.Handle, Io.net.Stream) = .empty,
 
 /// A peer on the relay: its WebSocket, which other links' tasks write to under the server's lock, and its stream, which
 /// the server shuts down to end the link.
@@ -36,25 +39,52 @@ pub fn init(allocator: std.mem.Allocator, io: Io, host: []const u8) Server {
 pub fn deinit(server: *Server) void {
     server.router.deinit(server.allocator);
     server.links.deinit(server.allocator);
+    server.served.deinit(server.allocator);
 }
 
-/// Serves the links `listener` accepts, each in a task of its own, till the task serving them is canceled.
+/// Serves the links `listener` accepts, each in a task of its own, till the task serving them is canceled; then every
+/// connection is shut down, and its task ends.
 pub fn serve(server: *Server, listener: *Io.net.Server) Io.Cancelable!void {
     var links: Io.Group = .init;
-    defer links.cancel(server.io);
+    defer {
+        server.shutdownServed();
+        links.await(server.io) catch {};
+    }
     while (true) {
         const stream = listener.accept(server.io) catch |err| switch (err) {
             error.Canceled => return error.Canceled,
             else => continue,
         };
-        links.concurrent(server.io, serveLink, .{ server, stream }) catch stream.close(server.io);
+        server.lock.lockUncancelable(server.io);
+        server.served.put(server.allocator, stream.socket.handle, stream) catch {
+            server.lock.unlock(server.io);
+            stream.close(server.io);
+            continue;
+        };
+        server.lock.unlock(server.io);
+        links.concurrent(server.io, serveLink, .{ server, stream }) catch server.release(stream);
     }
+}
+
+/// Shuts down every connection the server serves, both ways: each link's task reads the end.
+fn shutdownServed(server: *Server) void {
+    server.lock.lockUncancelable(server.io);
+    defer server.lock.unlock(server.io);
+    for (server.served.values()) |stream| stream.shutdown(server.io, .both) catch {};
+}
+
+/// Lets a connection go: no longer served, and closed.
+fn release(server: *Server, stream: Io.net.Stream) void {
+    server.lock.lockUncancelable(server.io);
+    _ = server.served.swapRemove(stream.socket.handle);
+    server.lock.unlock(server.io);
+    stream.close(server.io);
 }
 
 /// Serves one link: its WebSocket opened, its peer admitted, then its frames routed till it ends.
 fn serveLink(server: *Server, stream: Io.net.Stream) void {
     const io = server.io;
-    defer stream.close(io);
+    defer server.release(stream);
     const read_buffer = server.allocator.alloc(u8, frame.max_length + 16) catch return;
     defer server.allocator.free(read_buffer);
     var write_buffer: [frame.max_length + 16]u8 = undefined;

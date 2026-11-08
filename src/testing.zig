@@ -68,10 +68,10 @@ pub fn clientClosed(watched: *Watched, link: anytype) bool {
     return !watched.take(link) or watched.client.has(.closed);
 }
 
-/// What one stream of a session read, till its end.
+/// What one stream of a session read, till its end: one it opened, or the next its peer opens.
 pub const Reading = struct {
     connection: *Connection,
-    stream: u64,
+    stream: ?u64 = null,
     bytes: std.ArrayList(u8) = .empty,
 
     pub fn deinit(reading: *Reading) void {
@@ -81,8 +81,10 @@ pub const Reading = struct {
 
 pub fn readToEnd(reading: *Reading, link: anytype) bool {
     _ = link;
+    const stream = reading.stream orelse reading.connection.takeOpened(.bidirectional) orelse return false;
+    reading.stream = stream;
     var buffer: [64]u8 = undefined;
-    while (reading.connection.read(reading.stream, &buffer)) |length| {
+    while (reading.connection.read(stream, &buffer) catch return true) |length| {
         if (length == 0) return false;
         reading.bytes.appendSlice(testing.allocator, buffer[0..length]) catch return true;
     }
@@ -104,14 +106,15 @@ pub fn expectSession(link: anytype, server_at: IpAddress, client_identity: Ident
     try testing.expect(accepted.peer.eql(client_identity.publicKey()));
     try testing.expect(opened.peer.eql(server_identity.publicKey()));
 
-    const stream = try opened.openStream();
+    const stream = try opened.openStream(.bidirectional);
     try testing.expectEqual(7, try opened.write(stream, "hello, "));
     try testing.expectEqual(7, try opened.write(stream, "machine"));
     try opened.shutdown(stream);
-    var asked: Reading = .{ .connection = accepted, .stream = stream };
+    var asked: Reading = .{ .connection = accepted };
     defer asked.deinit();
     try link.runUntil(&asked, readToEnd);
     try testing.expectEqualStrings("hello, machine", asked.bytes.items);
+    try testing.expectEqual(stream, asked.stream.?);
 
     try testing.expectEqual(13, try accepted.write(stream, "hello, device"));
     try accepted.shutdown(stream);
@@ -138,11 +141,13 @@ pub fn expectAnotherKeyRefused(link: anytype, server_at: IpAddress) !void {
     link.client.endpoint.release(opened);
 }
 
-/// A transfer of `total` bytes on one stream of a session, written as room there is and read as they come.
+/// A transfer of `total` bytes on one stream of a session, written as room there is and read as they come, the
+/// receiver taking the stream as it comes.
 pub const Transfer = struct {
     sender: *Connection,
     receiver: *Connection,
     stream: u64,
+    taken: bool = false,
     total: usize,
     written: usize = 0,
     ended: bool = false,
@@ -169,7 +174,11 @@ pub fn transferred(transfer: *Transfer, link: anytype) bool {
         transfer.sender.shutdown(transfer.stream) catch return true;
         transfer.ended = true;
     }
-    while (transfer.receiver.read(transfer.stream, &chunk)) |length| {
+    if (!transfer.taken) {
+        if (transfer.receiver.takeOpened(.bidirectional) == null) return false;
+        transfer.taken = true;
+    }
+    while (transfer.receiver.read(transfer.stream, &chunk) catch return true) |length| {
         if (length == 0) return false;
         for (chunk[0..length], transfer.received..) |byte, index| {
             if (byte != Transfer.byteAt(index)) transfer.intact = false;
@@ -187,7 +196,7 @@ pub fn expectTransfer(link: anytype, server_at: IpAddress, server_identity: Iden
     const opened = try link.client.endpoint.connect(server_identity.publicKey(), server_at, link.now);
     try link.runUntil(&watched, bothReady);
     const accepted = watched.server.connectionOf(.accepted);
-    const stream = try opened.openStream();
+    const stream = try opened.openStream(.bidirectional);
     var transfer: Transfer = .{ .sender = opened, .receiver = accepted, .stream = stream, .total = total };
     try link.runUntil(&transfer, transferred);
     try testing.expectEqual(total, transfer.received);

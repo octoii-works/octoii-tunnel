@@ -8,10 +8,10 @@ const scenario = @import("testing.zig");
 
 const testing = std.testing;
 
-/// Reads `stream` of `connection` on `station` to its end.
-fn readAll(station: *Station, connection: anytype, stream: u64, out: *std.ArrayList(u8)) !void {
+/// Reads `stream` to its end.
+fn readAll(stream: Station.Stream, out: *std.ArrayList(u8)) !void {
     var buffer: [4096]u8 = undefined;
-    while (try station.read(connection, stream, &buffer)) |length| try out.appendSlice(testing.allocator, buffer[0..length]);
+    while (try stream.read(&buffer)) |length| try out.appendSlice(testing.allocator, buffer[0..length]);
 }
 
 /// A device's station opens a session through the relay at `address` to a machine's, and a stream carries bytes each
@@ -31,26 +31,30 @@ fn expectSessionThrough(address: []const u8) !void {
     const accepted = try machine.accept();
     try testing.expect(accepted.peer.eql(device_identity.publicKey()));
 
-    const stream = try device.openStream(opened);
-    try device.write(opened, stream, "hello, machine");
-    try device.shutdown(opened, stream);
+    const stream = try device.openStream(opened, .bidirectional);
+    try stream.write("hello, machine");
+    try stream.shutdown();
+    const taken = try machine.acceptStream(accepted, .bidirectional);
+    try testing.expectEqual(stream.id, taken.id);
     var asked: std.ArrayList(u8) = .empty;
     defer asked.deinit(testing.allocator);
-    try readAll(machine, accepted, stream, &asked);
+    try readAll(taken, &asked);
     try testing.expectEqualStrings("hello, machine", asked.items);
 
     const big = try testing.allocator.alloc(u8, 1024 * 1024);
     defer testing.allocator.free(big);
     for (big, 0..) |*byte, index| byte.* = @intCast(index % 251);
-    try machine.write(accepted, stream, big);
-    try machine.shutdown(accepted, stream);
+    try taken.write(big);
+    try taken.shutdown();
+    taken.close(0);
     var answered: std.ArrayList(u8) = .empty;
     defer answered.deinit(testing.allocator);
-    try readAll(device, opened, stream, &answered);
+    try readAll(stream, &answered);
     try testing.expectEqualSlices(u8, big, answered.items);
+    stream.close(0);
 
-    device.close(opened);
-    machine.close(accepted);
+    device.close(opened, 0);
+    machine.close(accepted, 0);
 }
 
 test "a device's station opens a session through a relay of the tunnel's own to a machine's, and a stream carries bytes each way" {

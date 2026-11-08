@@ -52,7 +52,8 @@ pub const Event = union(enum) {
 pub const Options = struct {
     /// The most sessions it holds at once.
     max_connections: u32 = 256,
-    /// How long a session may hear nothing from its peer before it ends, in milliseconds.
+    /// How long a session may hear nothing from its peer before it ends, in milliseconds; a session keeps itself
+    /// alive meanwhile, pinging its peer at half of it.
     idle_timeout: u64 = 30_000,
 };
 
@@ -149,6 +150,7 @@ pub fn connect(endpoint: *Endpoint, peer: Identity.PublicKey, to: IpAddress, now
     const connection = try Connection.create(endpoint, cnx, .client, peer);
     errdefer connection.destroy();
     c.picoquic_set_callback(cnx, connectionCallback, connection);
+    c.picoquic_enable_keep_alive(cnx, 0);
     if (c.picoquic_start_client_cnx(cnx) != 0) return error.ConnectFailed;
     endpoint.connections.appendAssumeCapacity(connection);
     return connection;
@@ -232,6 +234,7 @@ fn connectionOf(endpoint: *Endpoint, cnx: *c.picoquic_cnx_t) !*Connection {
     const connection = try Connection.create(endpoint, cnx, .server, undefined);
     endpoint.connections.appendAssumeCapacity(connection);
     c.picoquic_set_callback(cnx, connectionCallback, connection);
+    c.picoquic_enable_keep_alive(cnx, 0);
     return connection;
 }
 

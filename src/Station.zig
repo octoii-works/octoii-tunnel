@@ -80,8 +80,10 @@ pub fn deinit(station: *Station) void {
     station.changed.broadcast(io);
     station.lock.unlock(io);
     if (station.loop) |*loop| loop.await(io);
+    // A relay's reader ends as its link is shut down, reading its end.
     for (station.relays.items) |each| {
-        if (each.reader) |*reader| reader.cancel(io);
+        each.link.shutdown();
+        if (each.reader) |*reader| reader.await(io);
         each.link.close();
         allocator.destroy(each);
     }
@@ -170,65 +172,175 @@ pub fn accept(station: *Station) Error!*Connection {
     return station.accepted.orderedRemove(0);
 }
 
-/// Closes a session the station gave: it is let go as it ends, and is not to be used again.
-pub fn close(station: *Station, connection: *Connection) void {
+/// Closes a session the station gave, with `code`, the reason its peer is told where it had not ended: it is let go
+/// as it ends, and is not to be used again, nor any of its streams.
+pub fn close(station: *Station, connection: *Connection, code: u64) void {
     station.lock.lockUncancelable(station.io);
     defer station.lock.unlock(station.io);
     if (connection.state == .closed) return station.endpoint.release(connection);
-    connection.close(0);
+    connection.close(code);
     station.abandoned.append(station.allocator, connection) catch {};
     station.ask();
 }
 
-/// Opens a stream of `connection`.
-pub fn openStream(station: *Station, connection: *Connection) Error!u64 {
+/// Ends a session the station gave with `code`, the reason its peer is told: its streams' reads and writes fail from
+/// then on, and it is its holder's till they close it.
+pub fn end(station: *Station, connection: *Connection, code: u64) void {
     station.lock.lockUncancelable(station.io);
     defer station.lock.unlock(station.io);
-    return connection.openStream() catch |err| switch (err) {
-        error.Closed => error.Closed,
-        error.OutOfMemory => error.OutOfMemory,
-    };
-}
-
-/// Writes all of `bytes` on `stream` of `connection`, waiting for room as the session sends what waits.
-pub fn write(station: *Station, connection: *Connection, stream: u64, bytes: []const u8) Error!void {
-    station.lock.lockUncancelable(station.io);
-    defer station.lock.unlock(station.io);
-    var written: usize = 0;
-    while (true) {
-        written += connection.write(stream, bytes[written..]) catch |err| return switch (err) {
-            error.Closed, error.Ended => error.Closed,
-            error.OutOfMemory => error.OutOfMemory,
-        };
-        station.ask();
-        if (written == bytes.len) return;
-        try station.waitChanged();
-    }
-}
-
-/// Ends this side of `stream` of `connection`, once all written is sent.
-pub fn shutdown(station: *Station, connection: *Connection, stream: u64) Error!void {
-    station.lock.lockUncancelable(station.io);
-    defer station.lock.unlock(station.io);
-    connection.shutdown(stream) catch |err| return switch (err) {
-        error.Closed => error.Closed,
-        error.OutOfMemory => error.OutOfMemory,
-    };
+    connection.close(code);
     station.ask();
 }
 
-/// Reads into `buffer` what came on `stream` of `connection`, waiting till something has: how many bytes, or null
-/// where the peer ended the stream and all it sent was read.
-pub fn read(station: *Station, connection: *Connection, stream: u64, buffer: []u8) Error!?usize {
+/// Opens a stream of `connection`, of `kind`.
+pub fn openStream(station: *Station, connection: *Connection, kind: Connection.Kind) Error!Stream {
+    station.lock.lockUncancelable(station.io);
+    defer station.lock.unlock(station.io);
+    const id = connection.openStream(kind) catch |err| return switch (err) {
+        error.Closed => error.Closed,
+        error.OutOfMemory => error.OutOfMemory,
+    };
+    return .{ .station = station, .connection = connection, .id = id };
+}
+
+/// The next stream of `kind` the peer of `connection` opened, once it has.
+pub fn acceptStream(station: *Station, connection: *Connection, kind: Connection.Kind) Error!Stream {
     station.lock.lockUncancelable(station.io);
     defer station.lock.unlock(station.io);
     while (true) {
-        const length = connection.read(stream, buffer) orelse return null;
-        if (length > 0) return length;
+        if (connection.takeOpened(kind)) |id| return .{ .station = station, .connection = connection, .id = id };
         if (connection.state == .closed) return error.Closed;
         try station.waitChanged();
     }
 }
+
+/// A stream of a session the station gave, as its holder reads and writes it, till they close it.
+pub const Stream = struct {
+    station: *Station,
+    connection: *Connection,
+    id: u64,
+
+    pub const Error = Station.Error || error{Reset};
+
+    /// Writes all of `bytes`, waiting for room as the session sends what waits; `Reset` where the peer stopped the
+    /// stream.
+    pub fn write(stream: Stream, bytes: []const u8) Stream.Error!void {
+        const station = stream.station;
+        station.lock.lockUncancelable(station.io);
+        defer station.lock.unlock(station.io);
+        var written: usize = 0;
+        while (true) {
+            written += stream.connection.write(stream.id, bytes[written..]) catch |err| return switch (err) {
+                error.Closed => error.Closed,
+                error.Reset => error.Reset,
+                error.OutOfMemory => error.OutOfMemory,
+            };
+            station.ask();
+            if (written == bytes.len) return;
+            try station.waitChanged();
+        }
+    }
+
+    /// Ends this side's way of the stream, once all written is sent.
+    pub fn shutdown(stream: Stream) Stream.Error!void {
+        const station = stream.station;
+        station.lock.lockUncancelable(station.io);
+        defer station.lock.unlock(station.io);
+        try stream.connection.shutdown(stream.id);
+        station.ask();
+    }
+
+    /// Reads into `buffer` what came, waiting till something has: how many bytes, or null where the peer ended the
+    /// stream and all it sent was read; `Reset` where the peer reset it.
+    pub fn read(stream: Stream, buffer: []u8) Stream.Error!?usize {
+        const station = stream.station;
+        station.lock.lockUncancelable(station.io);
+        defer station.lock.unlock(station.io);
+        while (true) {
+            const length = try stream.connection.read(stream.id, buffer) orelse return null;
+            if (length > 0) return length;
+            if (stream.connection.state == .closed) return error.Closed;
+            try station.waitChanged();
+        }
+    }
+
+    /// Stops receiving: what came is dropped, a read waiting or to come finds the end, and the peer is asked to stop
+    /// sending with `code` where it still was.
+    pub fn stopReceiving(stream: Stream, code: u64) void {
+        const station = stream.station;
+        station.lock.lockUncancelable(station.io);
+        defer station.lock.unlock(station.io);
+        stream.connection.stopReceiving(stream.id, code);
+        station.ask();
+    }
+
+    /// Lets go of the stream: receiving stopped as `stopReceiving` stops it, and this side's way ended where it was
+    /// not. The stream is not to be used again.
+    pub fn close(stream: Stream, code: u64) void {
+        const station = stream.station;
+        station.lock.lockUncancelable(station.io);
+        defer station.lock.unlock(station.io);
+        stream.connection.closeStream(stream.id, code);
+        station.ask();
+    }
+
+    /// A reader of the stream, its bytes read into `buffer` as they come.
+    pub fn reader(stream: Stream, buffer: []u8) Reader {
+        return .{ .stream = stream, .interface = .{ .vtable = &.{ .stream = Reader.streamOut }, .buffer = buffer, .seek = 0, .end = 0 } };
+    }
+
+    /// A writer of the stream, what is written gathered in `buffer` till it fills or is flushed.
+    pub fn writer(stream: Stream, buffer: []u8) Writer {
+        return .{ .stream = stream, .interface = .{ .vtable = &.{ .drain = Writer.drain }, .buffer = buffer } };
+    }
+
+    pub const Reader = struct {
+        stream: Stream,
+        interface: Io.Reader,
+        /// Why a read failed, where one did.
+        err: ?Stream.Error = null,
+
+        fn streamOut(r: *Io.Reader, w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
+            const reading: *Reader = @alignCast(@fieldParentPtr("interface", r));
+            const into = limit.slice(try w.writableSliceGreedy(1));
+            const length = reading.stream.read(into) catch |err| {
+                reading.err = err;
+                return error.ReadFailed;
+            } orelse return error.EndOfStream;
+            w.advance(length);
+            return length;
+        }
+    };
+
+    pub const Writer = struct {
+        stream: Stream,
+        interface: Io.Writer,
+        /// Why a write failed, where one did.
+        err: ?Stream.Error = null,
+
+        fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
+            const writing: *Writer = @alignCast(@fieldParentPtr("interface", w));
+            try writing.send(w.buffered());
+            w.end = 0;
+            var written: usize = 0;
+            for (data[0 .. data.len - 1]) |bytes| {
+                try writing.send(bytes);
+                written += bytes.len;
+            }
+            const last = data[data.len - 1];
+            for (0..splat) |_| try writing.send(last);
+            return written + last.len * splat;
+        }
+
+        fn send(writing: *Writer, bytes: []const u8) Io.Writer.Error!void {
+            if (bytes.len == 0) return;
+            writing.stream.write(bytes) catch |err| {
+                writing.err = err;
+                return error.WriteFailed;
+            };
+        }
+    };
+};
 
 /// Asks the loop to work, the lock held.
 fn ask(station: *Station) void {

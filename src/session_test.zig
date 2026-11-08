@@ -124,3 +124,100 @@ test "a stream carries more bytes than it takes at once over a direct link, each
     defer link.deinit();
     try scenario.expectTransfer(&link, link.server.at, server_identity, 3 * 1024 * 1024);
 }
+
+/// What a session's server took of the streams its client opened, as they came.
+const Taking = struct {
+    connection: *@import("Connection.zig"),
+    bidirectional: std.ArrayList(u64) = .empty,
+    unidirectional: std.ArrayList(u64) = .empty,
+
+    fn deinit(taking: *Taking) void {
+        taking.bidirectional.deinit(testing.allocator);
+        taking.unidirectional.deinit(testing.allocator);
+    }
+};
+
+fn tookThree(taking: *Taking, link: *Link) bool {
+    _ = link;
+    while (taking.connection.takeOpened(.bidirectional)) |stream| taking.bidirectional.append(testing.allocator, stream) catch return true;
+    while (taking.connection.takeOpened(.unidirectional)) |stream| taking.unidirectional.append(testing.allocator, stream) catch return true;
+    return taking.bidirectional.items.len == 2 and taking.unidirectional.items.len == 1;
+}
+
+/// A write the peer stops: true once a write on it fails as reset.
+const Stopped = struct { connection: *@import("Connection.zig"), stream: u64 };
+
+fn writeStopped(stopped: *Stopped, link: *Link) bool {
+    _ = link;
+    _ = stopped.connection.write(stopped.stream, "more") catch |err| return err == error.Reset;
+    return false;
+}
+
+test "the streams a peer opens are taken by kind in the order of their numbers, and one let go stops its peer's writes" {
+    const server_identity = Identity.generate(testing.io);
+    const client = try Endpoint.init(testing.allocator, testing.io, Identity.generate(testing.io), scenario.start, .{});
+    defer client.deinit();
+    const server = try Endpoint.init(testing.allocator, testing.io, server_identity, scenario.start, .{});
+    defer server.deinit();
+    var link = try linkOf(client, server, scenario.start);
+    defer link.deinit();
+    var watched: scenario.Watched = .{};
+    defer watched.deinit();
+    const opened = try client.connect(server_identity.publicKey(), link.server.at, link.now);
+    try link.runUntil(&watched, scenario.bothReady);
+    const accepted = watched.server.connectionOf(.accepted);
+
+    const first = try opened.openStream(.bidirectional);
+    const second = try opened.openStream(.bidirectional);
+    const one_way = try opened.openStream(.unidirectional);
+    try testing.expectEqual(.unidirectional, @import("Connection.zig").kindOf(one_way));
+    // Only the later stream carries anything: its number opens the one before it too.
+    _ = try opened.write(second, "second");
+    _ = try opened.write(one_way, "one way");
+    try opened.shutdown(one_way);
+    var taking: Taking = .{ .connection = accepted };
+    defer taking.deinit();
+    try link.runUntil(&taking, tookThree);
+    try testing.expectEqualSlices(u64, &.{ first, second }, taking.bidirectional.items);
+    try testing.expectEqualSlices(u64, &.{one_way}, taking.unidirectional.items);
+    var heard: scenario.Reading = .{ .connection = accepted, .stream = one_way };
+    defer heard.deinit();
+    try link.runUntil(&heard, scenario.readToEnd);
+    try testing.expectEqualStrings("one way", heard.bytes.items);
+
+    accepted.closeStream(second, 7);
+    var stopped: Stopped = .{ .connection = opened, .stream = second };
+    try link.runUntil(&stopped, writeStopped);
+
+    opened.close(0);
+    try link.runUntil(&watched, scenario.bothClosed);
+    client.release(opened);
+    server.release(watched.server.connectionOf(.closed));
+}
+
+fn idledPast(until: *const u64, link: *Link) bool {
+    return link.now >= until.*;
+}
+
+test "a session its holders hold keeps itself alive, idle for longer than it may hear nothing" {
+    const server_identity = Identity.generate(testing.io);
+    const client = try Endpoint.init(testing.allocator, testing.io, Identity.generate(testing.io), scenario.start, .{ .idle_timeout = 10_000 });
+    defer client.deinit();
+    const server = try Endpoint.init(testing.allocator, testing.io, server_identity, scenario.start, .{ .idle_timeout = 10_000 });
+    defer server.deinit();
+    var link = try linkOf(client, server, scenario.start);
+    defer link.deinit();
+    var watched: scenario.Watched = .{};
+    defer watched.deinit();
+    const opened = try client.connect(server_identity.publicKey(), link.server.at, link.now);
+    try link.runUntil(&watched, scenario.bothReady);
+    const accepted = watched.server.connectionOf(.accepted);
+    const until = link.now + 60 * std.time.us_per_s;
+    try link.runUntil(&until, idledPast);
+    try testing.expectEqual(.ready, opened.state);
+    try testing.expectEqual(.ready, accepted.state);
+    opened.close(0);
+    try link.runUntil(&watched, scenario.bothClosed);
+    client.release(opened);
+    server.release(watched.server.connectionOf(.closed));
+}

@@ -6,8 +6,8 @@
     .minimum_zig_version = "0.17.1",
     .dependencies = .{
         .picoquic = .{
-            .url = "git+https://github.com/octoii-works/picoquic#105b4322e8188f5902cb85841acff03edfe15d85",
-            .hash = "N-V-__8AAPy8ggC8-gQJxHZ_7ZQ7dT30-AVZSOSbYnsP0BMa",
+            .url = "git+https://github.com/octoii-works/picoquic#b9e9e1e0af477aa52090427aa6729664e5014843",
+            .hash = "N-V-__8AAEC_ggASaUK5kacvgllGa8RqYdNJ4yt9qZwMYNUu",
         },
         .picotls = .{
             .url = "git+https://github.com/octoii-works/picotls#bb737007b688290e53ec4900d4ef5646694094a5",

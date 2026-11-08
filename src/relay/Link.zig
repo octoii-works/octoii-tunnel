@@ -16,6 +16,8 @@ const Key = Identity.PublicKey;
 client: *std.http.Client,
 connection: *std.http.Client.Connection,
 lock: Io.Mutex = .init,
+/// Whether the link was shut down.
+shut: bool = false,
 reading: websocket.Reading = .{},
 /// What the relay's messages are read into; a frame read stays in it till the next read.
 buffer: [frame.max_length]u8 = undefined,
@@ -182,9 +184,18 @@ fn awaitBytes(link: *Link) Error!bool {
     return true;
 }
 
-/// Closes the link: the relay is told, and the connection let go.
-pub fn close(link: *Link) void {
+/// Shuts the link down: the relay is told, and the connection shut down both ways, so a read waiting on it, and every
+/// one after, finds the link closed. The link is closed after.
+pub fn shutdown(link: *Link) void {
+    if (link.shut) return;
+    link.shut = true;
     link.write(.close, &.{}) catch {};
+    link.connection.stream_reader.stream.shutdown(link.client.io, .both) catch {};
+}
+
+/// Closes the link: shut down where it was not, and the connection let go. No read of it may be waiting.
+pub fn close(link: *Link) void {
+    link.shutdown();
     const client = link.client;
     release(client, link.connection);
     client.allocator.destroy(link);
