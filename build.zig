@@ -22,10 +22,22 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run the tunnel's tests");
     test_step.dependOn(&run_tests.step);
 
+    // The relay as a WebAssembly module, for a host that holds its links itself, as a Durable Object does.
+    const relay_wasm = b.addExecutable(.{ .name = "relay", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/relay_wasm.zig"),
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .optimize = .ReleaseSmall,
+    }) });
+    relay_wasm.entry = .disabled;
+    relay_wasm.rdynamic = true;
+    const install_relay_wasm = b.addInstallArtifact(relay_wasm, .{});
+    b.step("relay-wasm", "Build the relay as a WebAssembly module").dependOn(&install_relay_wasm.step);
+
     const format = b.addFmt(.{ .paths = &.{ b.path("build.zig"), b.path("src") }, .check = true });
     const check_step = b.step("check", "Check the tunnel: its sources formatted and its tests passing");
     check_step.dependOn(&format.step);
     check_step.dependOn(&run_tests.step);
+    check_step.dependOn(&install_relay_wasm.step);
 }
 
 /// picoquic's transport, as its own build lists it, without what the tunnel does itself: the sockets and their loops, the

@@ -144,6 +144,14 @@ pub fn writeWelcome(writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.writeByte(@backingInt(Type.welcome));
 }
 
+/// The peer a frame a peer sent is for: the key its datagrams name; null where it is no frame a peer sends another.
+pub fn addresseeOf(bytes: []const u8) ?Key {
+    return switch (decode(bytes) catch return null) {
+        .datagrams => |datagrams| datagrams.key,
+        .gone, .challenge, .answer, .welcome => null,
+    };
+}
+
 /// Makes a peer's frame of datagrams to another the relay's frame of them from the peer, in place: the key the frame
 /// begins with is the sender's.
 pub fn forwardFrom(bytes: []u8, sender: Key) void {

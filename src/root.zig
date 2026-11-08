@@ -16,4 +16,5 @@ test {
     _ = @import("session_test.zig");
     _ = @import("relay_test.zig");
     _ = relay;
+    _ = @import("relay_wasm.zig");
 }

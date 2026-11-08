@@ -49,15 +49,10 @@ pub fn linkOf(router: *const Router, key: Key) ?Link {
 
 /// Where the frame `bytes` that the peer of `sender` sent goes.
 pub fn route(router: *const Router, sender: Key, bytes: []u8) Route {
-    const decoded = frame.decode(bytes) catch return .refused;
-    switch (decoded) {
-        .datagrams => |datagrams| {
-            const link = router.linkOf(datagrams.key) orelse return .{ .gone = datagrams.key };
-            frame.forwardFrom(bytes, sender);
-            return .{ .forward = .{ .link = link, .bytes = bytes } };
-        },
-        .gone, .challenge, .answer, .welcome => return .refused,
-    }
+    const addressee = frame.addresseeOf(bytes) orelse return .refused;
+    const link = router.linkOf(addressee) orelse return .{ .gone = addressee };
+    frame.forwardFrom(bytes, sender);
+    return .{ .forward = .{ .link = link, .bytes = bytes } };
 }
 
 const testing = std.testing;
