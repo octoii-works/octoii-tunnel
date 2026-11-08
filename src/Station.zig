@@ -318,7 +318,11 @@ pub const Stream = struct {
         defer station.lock.unlock(station.io);
         while (true) {
             const length = try stream.connection.read(stream.id, buffer) orelse return null;
-            if (length > 0) return length;
+            if (length > 0) {
+                // What was read opens the stream's window: the loop tells the peer.
+                station.ask();
+                return length;
+            }
             if (stream.connection.state == .closed) return error.Closed;
             try station.waitChanged();
         }

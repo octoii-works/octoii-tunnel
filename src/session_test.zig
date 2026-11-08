@@ -221,3 +221,56 @@ test "a session its holders hold keeps itself alive, idle for longer than it may
     client.release(opened);
     server.release(watched.server.connectionOf(.closed));
 }
+
+/// A stream written to as room there is, its peer reading nothing, till the link reaches `until`.
+const Unread = struct {
+    sender: *@import("Connection.zig"),
+    stream: u64,
+    written: usize = 0,
+    until: u64,
+};
+
+fn writtenUnread(unread: *Unread, link: *Link) bool {
+    const chunk: [16 * 1024]u8 = @splat(7);
+    while (true) {
+        const taken = unread.sender.write(unread.stream, &chunk) catch return true;
+        if (taken == 0) break;
+        unread.written += taken;
+    }
+    return link.now >= unread.until;
+}
+
+test "a stream's peer sends no further ahead of what its holder read than the stream's window, and goes on as it reads" {
+    const server_identity = Identity.generate(testing.io);
+    const client = try Endpoint.init(testing.allocator, testing.io, Identity.generate(testing.io), scenario.start, .{});
+    defer client.deinit();
+    const server = try Endpoint.init(testing.allocator, testing.io, server_identity, scenario.start, .{});
+    defer server.deinit();
+    var link = try linkOf(client, server, scenario.start);
+    defer link.deinit();
+    var watched: scenario.Watched = .{};
+    defer watched.deinit();
+    const opened = try client.connect(server_identity.publicKey(), link.server.at, link.now);
+    try link.runUntil(&watched, scenario.bothReady);
+    const accepted = watched.server.connectionOf(.accepted);
+
+    const stream = try opened.openStream(.bidirectional);
+    var unread: Unread = .{ .sender = opened, .stream = stream, .until = link.now + 2 * std.time.us_per_s };
+    try link.runUntil(&unread, writtenUnread);
+    const held = accepted.streams.getPtr(stream).?;
+    const buffered = held.received.items.len - held.read;
+    // What the server's stream takes before its holder reads: the window a peer's stream opens with, 64 KiB.
+    try testing.expect(buffered > 0 and buffered <= 128 * 1024);
+    try testing.expect(unread.written > buffered);
+
+    try opened.shutdown(stream);
+    var reading: scenario.Reading = .{ .connection = accepted, .stream = stream };
+    defer reading.deinit();
+    try link.runUntil(&reading, scenario.readToEnd);
+    try testing.expectEqual(unread.written, reading.bytes.items.len);
+
+    opened.close(0);
+    try link.runUntil(&watched, scenario.bothClosed);
+    client.release(opened);
+    server.release(watched.server.connectionOf(.closed));
+}

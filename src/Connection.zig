@@ -57,6 +57,10 @@ const Stream = struct {
     receiving_stopped: bool = false,
     /// Whether its holder let it go: it goes once its end is sent.
     closed: bool = false,
+    /// How many bytes its holder read: the peer sends no further ahead of them than the stream's window.
+    taken: u64 = 0,
+    /// Whether picoquic grows the stream's window from what its holder read, rather than from what picoquic gave.
+    paced: bool = false,
 
     fn deinit(stream: *Stream, allocator: std.mem.Allocator) void {
         stream.received.deinit(allocator);
@@ -128,6 +132,7 @@ pub fn openStream(connection: *Connection, kind: Kind) error{ Closed, OutOfMemor
     // picoquic makes a stream as it is first marked; marked idle, it waits for what is written to it.
     if (c.picoquic_mark_active_stream_v2(cnx, stream, 0) != 0) return error.OutOfMemory;
     connection.streams.putAssumeCapacity(stream, .local(kind));
+    if (kind == .bidirectional) connection.pace(stream, connection.streams.getPtr(stream).?);
     return stream;
 }
 
@@ -210,6 +215,13 @@ fn incomingOf(connection: *Connection, stream: u64) !?*Stream {
     return connection.streams.getPtr(stream).?;
 }
 
+/// Has picoquic grow `stream`'s window from what its holder read, once picoquic holds the stream.
+fn pace(connection: *Connection, stream: u64, entry: *Stream) void {
+    if (entry.paced) return;
+    const cnx = connection.cnx orelse return;
+    entry.paced = c.picoquic_set_app_flow_control(cnx, stream, 1) == 0;
+}
+
 /// Tells picoquic that `stream` has something to send, which it asks for as it can send it.
 fn markActive(connection: *Connection, stream: u64) error{Closed}!void {
     const cnx = connection.cnx orelse return error.Closed;
@@ -252,11 +264,22 @@ pub fn read(connection: *Connection, stream: u64, buffer: []u8) error{Reset}!?us
     const length = @min(unread.len, buffer.len);
     @memcpy(buffer[0..length], unread[0..length]);
     entry.read += length;
+    if (length > 0) connection.consumed(stream, entry, length);
     if (entry.read == entry.received.items.len and !entry.peer_ended) {
         entry.received.clearRetainingCapacity();
         entry.read = 0;
     }
     return length;
+}
+
+/// Tells picoquic that `stream`'s holder read `length` more bytes, so its window grows from there.
+fn consumed(connection: *Connection, stream: u64, entry: *Stream, length: usize) void {
+    entry.taken += length;
+    const cnx = connection.cnx orelse return;
+    if (!entry.paced or connection.state == .closed) return;
+    const previous = connection.endpoint.enter(connection.endpoint.now);
+    defer host_.leave(previous);
+    _ = c.picoquic_stream_data_consumed(cnx, stream, entry.taken);
 }
 
 /// Lets go of `stream` once its holder let it go and its end is sent.
@@ -310,6 +333,7 @@ pub fn prepare(connection: *Connection, stream: u64, context: ?*anyopaque, most:
 
 fn received(connection: *Connection, stream: u64, bytes: []const u8, ended: bool) !void {
     const entry = try connection.incomingOf(stream) orelse return;
+    connection.pace(stream, entry);
     if (ended) entry.peer_ended = true;
     if (entry.receiving_stopped) return;
     try entry.received.appendSlice(connection.endpoint.allocator, bytes);
