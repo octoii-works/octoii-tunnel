@@ -7,6 +7,7 @@
 // the peer claims and sends it a challenge; the peer's answer admits it by that key, displacing an earlier link of the
 // same key. From then on each binary message is a frame of datagrams for a peer of the home, forwarded to it as from
 // the sender, or answered with that peer's being gone. A text message "ping" is answered "pong" without waking the home.
+// Asked, a home tells the keys of the peers on it, as a deployment shows who is on a machine's home.
 
 import { DurableObject } from "cloudflare:workers";
 import module from "./relay.wasm";
@@ -128,6 +129,17 @@ export function defineRelay({ binding = "HOMES", authorize = async () => true } 
 
 		async webSocketClose(socket, code, reason) {
 			socket.close(code, reason);
+		}
+
+		/** The keys of the peers on the home now, each admitted by its answer; the machine's own among them while it is
+		 * on its home. */
+		async peers() {
+			const keys = new Set();
+			for (const socket of this.ctx.getWebSockets()) {
+				const link = linkOf(socket);
+				if (link?.admitted) keys.add(link.key);
+			}
+			return [...keys];
 		}
 	}
 
