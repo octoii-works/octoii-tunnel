@@ -17,4 +17,6 @@ test {
     _ = @import("relay_test.zig");
     _ = relay;
     _ = @import("relay_wasm.zig");
+    _ = @import("websocket.zig");
+    _ = @import("relay_link_test.zig");
 }

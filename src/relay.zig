@@ -5,10 +5,14 @@ pub const frame = @import("relay/frame.zig");
 pub const authentication = @import("relay/authentication.zig");
 pub const Router = @import("relay/Router.zig");
 pub const Book = @import("relay/Book.zig");
+pub const Link = @import("relay/Link.zig");
+pub const Server = @import("relay/Server.zig");
 
 test {
     _ = frame;
     _ = authentication;
     _ = Router;
     _ = Book;
+    _ = Link;
+    _ = Server;
 }

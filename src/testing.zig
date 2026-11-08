@@ -104,15 +104,15 @@ pub fn expectSession(link: anytype, server_at: IpAddress, client_identity: Ident
     try testing.expect(opened.peer.eql(server_identity.publicKey()));
 
     const stream = try opened.openStream();
-    try opened.write(stream, "hello, ");
-    try opened.write(stream, "machine");
+    try testing.expectEqual(7, try opened.write(stream, "hello, "));
+    try testing.expectEqual(7, try opened.write(stream, "machine"));
     try opened.shutdown(stream);
     var asked: Reading = .{ .connection = accepted, .stream = stream };
     defer asked.deinit();
     try link.runUntil(&asked, readToEnd);
     try testing.expectEqualStrings("hello, machine", asked.bytes.items);
 
-    try accepted.write(stream, "hello, device");
+    try testing.expectEqual(13, try accepted.write(stream, "hello, device"));
     try accepted.shutdown(stream);
     var answered: Reading = .{ .connection = opened, .stream = stream };
     defer answered.deinit();
@@ -135,4 +135,64 @@ pub fn expectAnotherKeyRefused(link: anytype, server_at: IpAddress) !void {
     try testing.expect(!watched.client.has(.connected));
     try testing.expect(!watched.server.has(.accepted));
     link.client.endpoint.release(opened);
+}
+
+/// A transfer of `total` bytes on one stream of a session, written as room there is and read as they come.
+pub const Transfer = struct {
+    sender: *Connection,
+    receiver: *Connection,
+    stream: u64,
+    total: usize,
+    written: usize = 0,
+    ended: bool = false,
+    received: usize = 0,
+    /// Whether every byte came as it was written: byte `n` is `n % 251`.
+    intact: bool = true,
+
+    fn byteAt(index: usize) u8 {
+        return @intCast(index % 251);
+    }
+};
+
+pub fn transferred(transfer: *Transfer, link: anytype) bool {
+    _ = link;
+    var chunk: [16 * 1024]u8 = undefined;
+    while (transfer.written < transfer.total) {
+        const length = @min(chunk.len, transfer.total - transfer.written);
+        for (chunk[0..length], transfer.written..) |*byte, index| byte.* = Transfer.byteAt(index);
+        const taken = transfer.sender.write(transfer.stream, chunk[0..length]) catch return true;
+        if (taken == 0) break;
+        transfer.written += taken;
+    }
+    if (transfer.written == transfer.total and !transfer.ended) {
+        transfer.sender.shutdown(transfer.stream) catch return true;
+        transfer.ended = true;
+    }
+    while (transfer.receiver.read(transfer.stream, &chunk)) |length| {
+        if (length == 0) return false;
+        for (chunk[0..length], transfer.received..) |byte, index| {
+            if (byte != Transfer.byteAt(index)) transfer.intact = false;
+        }
+        transfer.received += length;
+    }
+    return true;
+}
+
+/// Runs a session over `link` that carries `total` bytes on one stream, more than a stream takes at once: they wait
+/// their turn as it sends, and all come intact, the stream's end after them.
+pub fn expectTransfer(link: anytype, server_at: IpAddress, server_identity: Identity, total: usize) !void {
+    var watched: Watched = .{};
+    defer watched.deinit();
+    const opened = try link.client.endpoint.connect(server_identity.publicKey(), server_at, link.now);
+    try link.runUntil(&watched, bothReady);
+    const accepted = watched.server.connectionOf(.accepted);
+    const stream = try opened.openStream();
+    var transfer: Transfer = .{ .sender = opened, .receiver = accepted, .stream = stream, .total = total };
+    try link.runUntil(&transfer, transferred);
+    try testing.expectEqual(total, transfer.received);
+    try testing.expect(transfer.intact);
+    opened.close(0);
+    try link.runUntil(&watched, bothClosed);
+    link.client.endpoint.release(opened);
+    link.server.endpoint.release(watched.server.connectionOf(.closed));
 }

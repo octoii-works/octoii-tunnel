@@ -245,6 +245,10 @@ fn endpointCallback(cnx: ?*c.picoquic_cnx_t, stream: u64, bytes: [*c]u8, length:
 fn connectionCallback(cnx: ?*c.picoquic_cnx_t, stream: u64, bytes: [*c]u8, length: usize, event: c.picoquic_call_back_event_t, context: ?*anyopaque, stream_context: ?*anyopaque) callconv(.c) c_int {
     _ = .{ cnx, stream_context };
     const connection: *Connection = @ptrCast(@alignCast(context.?));
+    if (event == c.picoquic_callback_prepare_to_send) {
+        connection.prepare(stream, bytes, length) catch return -1;
+        return 0;
+    }
     const data: []const u8 = if (length == 0) &.{} else bytes[0..length];
     connection.handle(stream, data, event) catch return -1;
     return 0;

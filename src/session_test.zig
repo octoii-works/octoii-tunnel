@@ -113,3 +113,14 @@ test "a session over a direct link to a peer that shows another key than the one
     defer link.deinit();
     try scenario.expectAnotherKeyRefused(&link, link.server.at);
 }
+
+test "a stream carries more bytes than it takes at once over a direct link, each in its turn and intact" {
+    const server_identity = Identity.generate(testing.io);
+    const client = try Endpoint.init(testing.allocator, testing.io, Identity.generate(testing.io), scenario.start, .{});
+    defer client.deinit();
+    const server = try Endpoint.init(testing.allocator, testing.io, server_identity, scenario.start, .{});
+    defer server.deinit();
+    var link = try linkOf(client, server, scenario.start);
+    defer link.deinit();
+    try scenario.expectTransfer(&link, link.server.at, server_identity, 3 * 1024 * 1024);
+}
