@@ -49,13 +49,15 @@ const picoquic_sources = [_][]const u8{
 /// ClientHello takes keys with, without its crypto backends.
 const picotls_sources = [_][]const u8{ "lib/picotls.c", "lib/hpke.c", "lib/pembase64.c", "lib/asn1.c" };
 
-/// What picoquic and picotls compile with: no OpenSSL and no debug printing, and each call of the C library's allocation
+/// What picoquic and picotls compile with: no crypto of their own — neither OpenSSL nor minicrypto, the tunnel's being
+/// its own provider — no debug printing, and each call of the C library's allocation
 /// functions taken over by a function-like macro, so all they allocate comes from the tunnel's allocator
 /// (`src/allocation.zig`). The C library's declarations, read through the same macros, declare the tunnel's functions.
 const quic_flags: []const []const u8 = &.{
     "-std=gnu11",
     "-fno-sanitize=undefined",
     "-DPTLS_WITHOUT_OPENSSL",
+    "-DPICOQUIC_WITHOUT_MINICRYPTO",
     "-DDISABLE_DEBUG_PRINTF",
     "-Dmalloc(size)=octoii_tunnel_malloc(size)",
     "-Dcalloc(count,size)=octoii_tunnel_calloc(count,size)",
@@ -68,26 +70,30 @@ const quic_flags: []const []const u8 = &.{
 };
 
 /// picoquic and picotls as a library, compiled optimized whatever the tunnel's own mode, so a Debug build runs no
-/// unoptimized transport; with them the tunnel's C, `src/crypto.c`, picotls's descriptions of the tunnel's crypto, and
-/// `src/tls_context.c`, which reaches what picoquic keeps of its TLS.
+/// unoptimized transport; with them the tunnel's C, `src/crypto.c`, picotls's descriptions of the tunnel's crypto.
 fn quicLibrary(b: *std.Build, picoquic: *std.Build.Dependency, picotls: *std.Build.Dependency, target: std.Build.ResolvedTarget) *std.Build.Step.Compile {
     const module = b.createModule(.{ .target = target, .optimize = .fast, .link_libc = true });
-    // picoquic and picotls know Windows by `_WINDOWS`, as their own Windows builds define it.
+    // picoquic and picotls know Windows by `_WINDOWS`, as their own Windows builds define it, and picotls takes its
+    // Windows header from the folder of its Windows build.
     if (target.result.os.tag == .windows) {
         module.addCMacro("_WINDOWS", "1");
+        module.addIncludePath(picotls.path("picotlsvs/picotls"));
         module.linkSystemLibrary("ws2_32", .{});
     }
     for ([_]std.Build.LazyPath{ picoquic.path("picoquic"), picoquic.path("loglib"), picotls.path("include") }) |path| module.addIncludePath(path);
     module.addCSourceFiles(.{ .root = picoquic.path(""), .files = &picoquic_sources, .flags = quic_flags });
     module.addCSourceFiles(.{ .root = picotls.path(""), .files = &picotls_sources, .flags = quic_flags });
     module.addIncludePath(b.path("src"));
-    module.addCSourceFiles(.{ .root = b.path("src"), .files = &.{ "crypto.c", "tls_context.c" }, .flags = quic_flags });
+    module.addCSourceFile(.{ .file = b.path("src/crypto.c"), .flags = quic_flags });
     return b.addLibrary(.{ .name = "quic", .linkage = .static, .root_module = module });
 }
 
 /// Gives the translation of `src/quic.h` the headers it includes, as picoquic is compiled.
 fn withQuicIncludes(b: *std.Build, header: Translator, picoquic: *std.Build.Dependency, picotls: *std.Build.Dependency, target: std.Build.ResolvedTarget) void {
-    if (target.result.os.tag == .windows) header.defineCMacro("_WINDOWS", "1");
+    if (target.result.os.tag == .windows) {
+        header.defineCMacro("_WINDOWS", "1");
+        header.addIncludePath(picotls.path("picotlsvs/picotls"));
+    }
     header.addIncludePath(b.path("src"));
     header.addIncludePath(picoquic.path("picoquic"));
     header.addIncludePath(picotls.path("include"));

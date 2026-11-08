@@ -6,12 +6,12 @@
     .minimum_zig_version = "0.17.1",
     .dependencies = .{
         .picoquic = .{
-            .url = "git+https://github.com/private-octopus/picoquic#98a770ab5cd457c7e2a7e18537c3a4dc777e22e3",
-            .hash = "N-V-__8AAK-xggDUytE0VgE_FXT5rPU7WXGX_bMDDCJQLxAa",
+            .url = "git+https://github.com/octoii-works/picoquic#105b4322e8188f5902cb85841acff03edfe15d85",
+            .hash = "N-V-__8AAPy8ggC8-gQJxHZ_7ZQ7dT30-AVZSOSbYnsP0BMa",
         },
         .picotls = .{
-            .url = "git+https://github.com/h2o/picotls#933b33a9c7d5438d6327dbe4af3f2884b7a572ac",
-            .hash = "N-V-__8AAHthPQDXr8LeismmCcG9D2HJqXR9Z3FEzJOv-6lZ",
+            .url = "git+https://github.com/octoii-works/picotls#bb737007b688290e53ec4900d4ef5646694094a5",
+            .hash = "N-V-__8AALBjPQDGDZT6xKTReAjq1zmojgsZd2H8cRPpuwaI",
         },
         .translate_c = .{
             .url = "git+https://codeberg.org/ziglang/translate-c?ref=zig-0.17.x#cfac21f3199b2b02ce3fd7db652aa456421fe4ab",

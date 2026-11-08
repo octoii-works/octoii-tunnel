@@ -1,6 +1,6 @@
-The tunnel compiles these libraries from their sources into itself.
+The tunnel compiles these libraries from their sources into itself, from its own forks of them.
 
-picoquic — https://github.com/private-octopus/picoquic
+picoquic — https://github.com/octoii-works/picoquic, from https://github.com/private-octopus/picoquic
 
 MIT License
 
@@ -24,7 +24,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-picotls — https://github.com/h2o/picotls
+picotls — https://github.com/octoii-works/picotls, from https://github.com/h2o/picotls
 
 Copyright (c) 2016 DeNA Co., Ltd., Kazuho Oku
 

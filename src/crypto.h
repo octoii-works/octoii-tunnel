@@ -34,4 +34,7 @@ int octoii_tunnel_x25519_exchange(ptls_key_exchange_algorithm_t *algo, ptls_iove
                                   ptls_iovec_t peerkey);
 void octoii_tunnel_random_bytes(void *buf, size_t len);
 
+/* The crypto provider picoquic registers the algorithms by (src/crypto.c). */
+void octoii_tunnel_crypto_load(int unload);
+
 #endif

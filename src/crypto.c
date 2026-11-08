@@ -1,7 +1,6 @@
 /* The tunnel's crypto as picotls is given it: each algorithm's description in picotls's own structures, compiled here
  * so their layout is the C compiler's for each target, its work done by the tunnel's Zig on std.crypto
- * (src/crypto.zig); and picoquic's baseline provider, which picoquic loads by its name as it first makes a TLS context,
- * picoquic being compiled with no provider of its own. */
+ * (src/crypto.zig); and the crypto provider picoquic loads them by, its only one. */
 #include "picotls.h"
 #include "picoquic.h"
 #include "picoquic_crypto_provider_api.h"
@@ -59,7 +58,7 @@ static ptls_key_exchange_algorithm_t x25519 = {.id = PTLS_GROUP_X25519,
                                                .create = octoii_tunnel_x25519_create,
                                                .exchange = octoii_tunnel_x25519_exchange};
 
-void picoquic_ptls_minicrypto_load(int unload)
+void octoii_tunnel_crypto_load(int unload)
 {
     if (unload != 0)
         return;

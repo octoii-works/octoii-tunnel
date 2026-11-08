@@ -13,6 +13,3 @@
 #include "picoquic_bbr.h"
 #include "picoquic_utils.h"
 #include "crypto.h"
-
-/* src/tls_context.c */
-void octoii_tunnel_set_signer(picoquic_quic_t *quic, ptls_sign_certificate_t *signer);

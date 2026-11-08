@@ -88,6 +88,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, identity: Identity, now: u
     };
     const previous = endpoint.enter(now);
     defer host_.leave(previous);
+    c.picoquic_register_crypto_provider(c.octoii_tunnel_crypto_load);
     var reset_seed: [c.PICOQUIC_RESET_SECRET_SIZE]u8 = undefined;
     io.random(&reset_seed);
     var ticket_key: [32]u8 = undefined;
@@ -96,9 +97,6 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, identity: Identity, now: u
     endpoint.quic = c.picoquic_create(options.max_connections, null, null, null, alpn, endpointCallback, endpoint, null, null, &reset_seed, now, &endpoint.now, null, &ticket_key, ticket_key.len) orelse return error.OutOfMemory;
     errdefer c.picoquic_free(endpoint.quic);
     try endpoint.showIdentity();
-    // picoquic takes an endpoint made without its certificate files for one that opens sessions only; this one's
-    // identity is given otherwise, and peers open sessions to it too.
-    c.picoquic_enforce_client_only(endpoint.quic, 0);
     c.picoquic_set_verify_certificate_callback(endpoint.quic, &endpoint.verifier, null);
     c.picoquic_set_client_authentication(endpoint.quic, 1);
     c.picoquic_set_default_multipath_option(endpoint.quic, 1);
@@ -122,8 +120,8 @@ pub fn deinit(endpoint: *Endpoint) void {
     allocator.destroy(endpoint);
 }
 
-/// Gives the endpoint's TLS its identity: the certificate it shows and the signer of its handshakes, both in the C
-/// libraries' memory, which picoquic frees with its TLS.
+/// Gives the endpoint's TLS its identity — the certificate it shows and the signer of its handshakes, both in the C
+/// libraries' memory, which picoquic frees with its TLS — so it opens sessions and peers open them to it.
 fn showIdentity(endpoint: *Endpoint) !void {
     const shown = try certificate.make(endpoint.identity);
     const bytes = allocation.allocate(shown.len, 16) orelse return error.OutOfMemory;
@@ -136,7 +134,7 @@ fn showIdentity(endpoint: *Endpoint) !void {
     c.picoquic_set_tls_certificate_chain(endpoint.quic, chain, 1);
     const signer = allocation.create(Signer) orelse return error.OutOfMemory;
     signer.* = .{ .base = .{ .cb = signCertificate }, .identity = &endpoint.identity };
-    c.octoii_tunnel_set_signer(endpoint.quic, &signer.base);
+    c.picoquic_set_tls_signer(endpoint.quic, &signer.base);
 }
 
 /// Opens a session to the peer known by `peer`, at `to`, at `now`: ready as its `connected` event tells, once the peer
@@ -171,12 +169,12 @@ pub fn send(endpoint: *Endpoint, buffer: []u8, now: u64) !?Datagram {
     const previous = endpoint.enter(now);
     defer host_.leave(previous);
     var length: usize = 0;
-    var to = std.mem.zeroes(c.struct_sockaddr_storage);
-    var from = std.mem.zeroes(c.struct_sockaddr_storage);
+    var to = std.mem.zeroes(address.Socket);
+    var from = std.mem.zeroes(address.Socket);
     var interface: c_int = 0;
     var logged: c.picoquic_connection_id_t = undefined;
     var last: ?*c.picoquic_cnx_t = null;
-    if (c.picoquic_prepare_next_packet(endpoint.quic, now, buffer.ptr, buffer.len, &length, &to, &from, &interface, &logged, &last) != 0) return error.SendFailed;
+    if (c.picoquic_prepare_next_packet(endpoint.quic, now, buffer.ptr, buffer.len, &length, @ptrCast(&to), @ptrCast(&from), &interface, &logged, &last) != 0) return error.SendFailed;
     if (length == 0) return null;
     return .{ .length = length, .to = address.fromSocket(&to) orelse return error.SendFailed, .from = address.fromSocket(&from) };
 }
