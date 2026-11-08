@@ -30,5 +30,6 @@ test {
     _ = @import("relay_link_test.zig");
     _ = @import("station_test.zig");
     _ = http3;
+    _ = @import("http3_session_test.zig");
     _ = @import("http3_test.zig");
 }

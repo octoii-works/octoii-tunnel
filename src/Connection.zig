@@ -17,6 +17,8 @@ side: Side,
 /// peer did, from its certificate on.
 peer: Identity.PublicKey,
 state: State = .handshaking,
+/// The code the peer's application closed the session with, where it did.
+peer_code: ?u64 = null,
 /// Every stream of the session not yet let go.
 streams: std.AutoArrayHashMapUnmanaged(u64, Stream) = .empty,
 /// The streams the peer opened, not yet taken, of each kind, in the order of their numbers.
@@ -256,20 +258,44 @@ fn provide(connection: *Connection, stream: u64, context: ?*anyopaque, most: usi
 /// Reads into `buffer` what came on `stream`: how many bytes, none where nothing more has come yet, null where the peer
 /// ended the stream and all it sent was read, or this endpoint stopped receiving; `Reset` where the peer reset it.
 pub fn read(connection: *Connection, stream: u64, buffer: []u8) error{Reset}!?usize {
+    const unread = try connection.peek(stream);
+    if (unread.bytes.len == 0 and unread.ended) return null;
+    const length = @min(unread.bytes.len, buffer.len);
+    @memcpy(buffer[0..length], unread.bytes[0..length]);
+    connection.consume(stream, length);
+    return length;
+}
+
+/// What came on a stream and was not yet consumed, as it lies in the stream's buffer, where it stays till it is
+/// consumed or more comes; and whether the stream ended after it.
+pub const Unread = struct { bytes: []const u8, ended: bool };
+
+/// What came on `stream` and was not yet consumed — none, ended, where this endpoint stopped receiving; `Reset` where
+/// the peer reset the stream.
+pub fn peek(connection: *Connection, stream: u64) error{Reset}!Unread {
     const entry = connection.streams.getPtr(stream).?;
-    if (entry.receiving_stopped) return null;
+    if (entry.receiving_stopped) return .{ .bytes = &.{}, .ended = true };
     if (entry.peer_reset) return error.Reset;
-    const unread = entry.received.items[entry.read..];
-    if (unread.len == 0 and entry.peer_ended) return null;
-    const length = @min(unread.len, buffer.len);
-    @memcpy(buffer[0..length], unread[0..length]);
+    return .{ .bytes = entry.received.items[entry.read..], .ended = entry.peer_ended };
+}
+
+/// Consumes the first `length` bytes `peek` gave of `stream`: the stream's window grows past them.
+pub fn consume(connection: *Connection, stream: u64, length: usize) void {
+    if (length == 0) return;
+    const entry = connection.streams.getPtr(stream).?;
+    std.debug.assert(length <= entry.received.items.len - entry.read);
     entry.read += length;
-    if (length > 0) connection.consumed(stream, entry, length);
+    connection.consumed(stream, entry, length);
     if (entry.read == entry.received.items.len and !entry.peer_ended) {
         entry.received.clearRetainingCapacity();
         entry.read = 0;
     }
-    return length;
+}
+
+/// How many bytes a write on `stream` takes now.
+pub fn room(connection: *Connection, stream: u64) usize {
+    const entry = connection.streams.getPtr(stream).?;
+    return max_pending - (entry.pending.items.len - entry.sent);
 }
 
 /// Tells picoquic that `stream`'s holder read `length` more bytes, so its window grows from there.
@@ -315,6 +341,7 @@ pub fn handle(connection: *Connection, stream: u64, bytes: []const u8, event: c.
         },
         c.picoquic_callback_close, c.picoquic_callback_application_close, c.picoquic_callback_stateless_reset => {
             connection.state = .closed;
+            if (event == c.picoquic_callback_application_close) connection.peer_code = c.picoquic_get_application_error(connection.cnx.?);
             // An ended session is told nothing more; picoquic ends a connection its peer opened by itself, and one
             // this endpoint opened as the session is released.
             c.picoquic_set_callback(connection.cnx.?, null, null);

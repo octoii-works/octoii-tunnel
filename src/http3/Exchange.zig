@@ -1,208 +1,183 @@
-//! An exchange on a request stream of an HTTP/3 session — a request and its response — from either side: the frames
-//! that come read as they come, a head and then the body's DATA, which a reader of the body reads, and trailers, which
-//! are let be; and those that go written, a head and then the body as DATA frames, the stream's end after them. It
-//! lives where its holder puts it, and its readers and writers point into it.
+//! An exchange on a request stream of an HTTP/3 session on a station — a request and its response, from either side —
+//! the session's state driven under the station's lock: the body that comes read through a reader, waiting till some
+//! has come; the body that goes written through a writer, as DATA frames, waiting for room; a head, the stream's end,
+//! and hanging up. It lives where its holder puts it, and its reader and writer point into it.
 const Exchange = @This();
 const std = @import("std");
 const Station = @import("../Station.zig");
 const Session = @import("Session.zig");
-const frame = @import("frame.zig");
 const qpack = @import("qpack.zig");
-const code = @import("code.zig");
 
 const Io = std.Io;
 const Field = std.http.Header;
 
+station: *Station,
 session: *Session,
-stream: Station.Stream,
-reader: Station.Stream.Reader,
-incoming: Session.Incoming,
-writer: Station.Stream.Writer,
+stream: u64,
 /// What reads the body that comes.
 body: Body,
 /// What writes the body that goes, as DATA frames.
 data: Data,
-/// Where the frames that come are.
-phase: Phase = .head,
-/// The payload of the head that came last, which its section points into.
-head: []u8 = &.{},
 /// Why the body's reader or writer failed, where one did.
-err: ?Session.Error = null,
-/// Whether its holder hung it up: the body that comes is no more read, and its reading ends where it stopped.
-hung_up: bool = false,
-read_buffer: [frame.max_head + Session.max_field_section]u8 = undefined,
-write_buffer: [256]u8 = undefined,
+err: ?Error = null,
 data_buffer: [16 * 1024]u8 = undefined,
 
-/// Where the frames that come are: a head to come, the body's, the trailers', or past the stream's end.
-pub const Phase = enum { head, body, trailers, done };
+/// What an exchange fails with: its session's error, or its station's.
+pub const Error = Session.Error || Station.Error;
 
-/// Puts an exchange on `stream` of `session` where `exchange` is.
-pub fn init(exchange: *Exchange, session: *Session, stream: Station.Stream) void {
+/// Puts an exchange on `stream` of `session`, a session on `station`, where `exchange` is.
+pub fn init(exchange: *Exchange, station: *Station, session: *Session, stream: u64) void {
     exchange.* = .{
+        .station = station,
         .session = session,
         .stream = stream,
-        .reader = undefined,
-        .incoming = undefined,
-        .writer = undefined,
         .body = .{ .interface = .{ .vtable = &.{ .stream = Body.streamOut }, .buffer = &.{}, .seek = 0, .end = 0 } },
         .data = undefined,
     };
-    exchange.reader = stream.reader(&exchange.read_buffer);
-    exchange.incoming = .init(&exchange.reader);
-    exchange.writer = stream.writer(&exchange.write_buffer);
-    exchange.data = .{ .interface = .{ .vtable = &.{ .drain = Data.drain, .flush = Data.flush }, .buffer = &exchange.data_buffer } };
+    exchange.data = .{ .interface = .{ .vtable = &.{ .drain = Data.drain }, .buffer = &exchange.data_buffer } };
 }
 
-/// Lets the exchange go: its stream closed, what it held freed.
+/// Lets the exchange go: its stream closed, and what the session held of it freed.
 pub fn deinit(exchange: *Exchange) void {
-    exchange.stream.close(@backingInt(code.Code.no_error));
-    exchange.session.allocator.free(exchange.head);
+    exchange.station.drive(exchange, closeStep) catch {};
 }
 
-/// The next head that comes — a request's, a response's, or an interim response's — once it has come, kept till the
-/// next; the body's frames come after it.
-pub fn receiveHead(exchange: *Exchange) Session.Error!qpack.Section {
-    std.debug.assert(exchange.phase == .head);
-    const piece = try exchange.next(1) orelse return exchange.failed(error.MalformedMessage);
-    if (piece != .frame or piece.frame.type != .headers) return exchange.failed(error.FrameUnexpected);
-    _ = qpack.Section.decode(piece.frame.payload) catch |err| return exchange.failed(err);
-    const allocator = exchange.session.allocator;
-    const head = try allocator.dupe(u8, piece.frame.payload);
-    allocator.free(exchange.head);
-    exchange.head = head;
-    exchange.phase = .body;
-    return qpack.Section.decode(head) catch unreachable;
+fn closeStep(exchange: *Exchange) error{}!?void {
+    exchange.session.closeStream(exchange.stream);
 }
 
-/// A reader of the body that comes, read into `buffer`.
+/// The head that came on the exchange's stream, once it came, kept till the stream is let go.
+pub fn receiveHead(exchange: *Exchange) Error!qpack.Section {
+    return exchange.station.drive(exchange, headStep);
+}
+
+fn headStep(exchange: *Exchange) Session.Error!?qpack.Section {
+    try exchange.session.poll();
+    return exchange.session.head(exchange.stream);
+}
+
+/// Ends the session at the peer's `err`, as a head its holder read was not formed as HTTP/3 forms one: `err`.
+pub fn fail(exchange: *Exchange, err: Session.ProtocolError) Error {
+    const Failing = struct { exchange: *Exchange, err: Session.ProtocolError };
+    exchange.station.drive(Failing{ .exchange = exchange, .err = err }, struct {
+        fn step(failing: Failing) error{}!?void {
+            failing.exchange.session.end(failing.err);
+        }
+    }.step) catch {};
+    return err;
+}
+
+/// Writes a head of the fields of `groups`, in order, before the body, once there is room for it.
+pub fn sendHead(exchange: *Exchange, groups: []const []const Field) Error!void {
+    const Sending = struct { exchange: *Exchange, groups: []const []const Field };
+    return exchange.station.drive(Sending{ .exchange = exchange, .groups = groups }, struct {
+        fn step(sending: Sending) Session.Error!?void {
+            return if (try sending.exchange.session.sendHead(sending.exchange.stream, sending.groups)) {} else null;
+        }
+    }.step);
+}
+
+/// A reader of the body that comes, read through `buffer`.
 pub fn bodyReader(exchange: *Exchange, buffer: []u8) *Io.Reader {
     exchange.body.interface.buffer = buffer;
     return &exchange.body.interface;
 }
 
-/// The next of the body's bytes, at most `most` of them, once they have come; null at its end.
-fn nextData(exchange: *Exchange, most: usize) Session.Error!?[]const u8 {
-    while (true) switch (exchange.phase) {
-        .head => unreachable,
-        .body => {
-            const piece = try exchange.next(most) orelse {
-                exchange.phase = .done;
-                return null;
-            };
-            switch (piece) {
-                .data => |bytes| return bytes,
-                .frame => |whole| {
-                    if (whole.type != .headers) return exchange.failed(error.FrameUnexpected);
-                    _ = qpack.Section.decode(whole.payload) catch |err| return exchange.failed(err);
-                    exchange.phase = .trailers;
-                },
-            }
-        },
-        .trailers => {
-            if (try exchange.next(most) != null) return exchange.failed(error.FrameUnexpected);
-            exchange.phase = .done;
-        },
-        .done => return null,
-    };
-}
-
-fn next(exchange: *Exchange, most: usize) Session.Error!?Session.Incoming.Piece {
-    return exchange.incoming.next(most) catch |err| {
-        if (@atomicLoad(bool, &exchange.hung_up, .acquire)) return null;
-        return exchange.failed(err);
-    };
-}
-
-/// Ends the session where `err` is the peer's: `err`.
-pub fn failed(exchange: *Exchange, err: Session.Error) Session.Error {
-    switch (err) {
-        error.Closed, error.Reset, error.Canceled, error.Stopped, error.Refused, error.OutOfMemory => {},
-        else => |protocol| exchange.session.fail(protocol),
-    }
-    return err;
-}
-
-/// Writes a head of the fields of `groups`, in order, before the body.
-pub fn sendHead(exchange: *Exchange, groups: []const []const Field) Session.Error!void {
-    var encoded: Io.Writer.Allocating = .init(exchange.session.allocator);
-    defer encoded.deinit();
-    qpack.write(&encoded.writer, groups) catch return error.OutOfMemory;
-    frame.write(&exchange.writer.interface, .headers, encoded.written()) catch return exchange.writer.err.?;
-}
-
-/// The writer of the body that goes, as DATA frames, each flush one.
+/// The writer of the body that goes, as DATA frames.
 pub fn bodyWriter(exchange: *Exchange) *Io.Writer {
     return &exchange.data.interface;
 }
 
 /// Sends what was written.
-pub fn flush(exchange: *Exchange) Session.Error!void {
+pub fn flush(exchange: *Exchange) Error!void {
     exchange.data.interface.flush() catch return exchange.err.?;
 }
 
 /// Sends what was written, and the stream's end after it.
-pub fn finish(exchange: *Exchange) Session.Error!void {
+pub fn finish(exchange: *Exchange) Error!void {
     try exchange.flush();
-    try exchange.stream.shutdown();
+    return exchange.station.drive(exchange, finishStep);
+}
+
+fn finishStep(exchange: *Exchange) Session.Error!?void {
+    try exchange.session.finish(exchange.stream);
 }
 
 /// Ends both ways, as a socket is shut down both ways: what was written sent and the stream's end after it, and the
 /// body that comes no more read, a read waiting on it finding its end.
 pub fn hangUp(exchange: *Exchange) void {
-    exchange.finish() catch {};
-    @atomicStore(bool, &exchange.hung_up, true, .release);
-    exchange.stream.stopReceiving(@backingInt(code.Code.no_error));
+    exchange.flush() catch {};
+    exchange.station.drive(exchange, hangUpStep) catch {};
 }
 
-/// What the body's reader reads: the payloads of its DATA frames.
+fn hangUpStep(exchange: *Exchange) error{}!?void {
+    exchange.session.hangUp(exchange.stream);
+}
+
+/// What the body's reader reads: the payloads of its DATA frames, each read once some has come.
 const Body = struct {
     interface: Io.Reader,
+
+    const Read = union(enum) { bytes: usize, end };
+    const Reading = struct { exchange: *Exchange, into: []u8 };
 
     fn streamOut(r: *Io.Reader, w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
         const body: *Body = @alignCast(@fieldParentPtr("interface", r));
         const exchange: *Exchange = @alignCast(@fieldParentPtr("body", body));
         const into = limit.slice(try w.writableSliceGreedy(1));
         if (into.len == 0) return 0;
-        const bytes = exchange.nextData(into.len) catch |err| {
+        const read = exchange.station.drive(Reading{ .exchange = exchange, .into = into }, step) catch |err| {
             exchange.err = err;
             return error.ReadFailed;
-        } orelse return error.EndOfStream;
-        @memcpy(into[0..bytes.len], bytes);
-        w.advance(bytes.len);
-        return bytes.len;
+        };
+        switch (read) {
+            .bytes => |length| {
+                w.advance(length);
+                return length;
+            },
+            .end => return error.EndOfStream,
+        }
+    }
+
+    fn step(reading: Reading) Session.Error!?Read {
+        const length = try reading.exchange.session.readBody(reading.exchange.stream, reading.into) orelse return .end;
+        return if (length == 0) null else .{ .bytes = length };
     }
 };
 
-/// What the body's writer writes: a DATA frame of what it gathered, at each drain.
+/// What the body's writer writes: what it gathered and what it is given, as DATA frames, each written once there is
+/// room for some of it.
 const Data = struct {
     interface: Io.Writer,
 
+    const Writing = struct { exchange: *Exchange, bytes: []const u8 };
+
     fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
         const exchange: *Exchange = @alignCast(@fieldParentPtr("data", @as(*Data, @alignCast(@fieldParentPtr("interface", w)))));
-        const gathered = w.buffered();
-        const last = data[data.len - 1];
-        var length: u64 = gathered.len + last.len * splat;
-        for (data[0 .. data.len - 1]) |bytes| length += bytes.len;
-        if (length == 0) return 0;
-        const out = &exchange.writer.interface;
-        errdefer if (exchange.writer.err) |err| {
-            exchange.err = err;
-        };
-        try frame.writeHead(out, .data, length);
-        try out.writeAll(gathered);
-        for (data[0 .. data.len - 1]) |bytes| try out.writeAll(bytes);
-        for (0..splat) |_| try out.writeAll(last);
+        try write(exchange, w.buffered());
         w.end = 0;
-        return @intCast(length - gathered.len);
+        var written: usize = 0;
+        for (data[0 .. data.len - 1]) |bytes| {
+            try write(exchange, bytes);
+            written += bytes.len;
+        }
+        const last = data[data.len - 1];
+        for (0..splat) |_| try write(exchange, last);
+        return written + last.len * splat;
     }
 
-    fn flush(w: *Io.Writer) Io.Writer.Error!void {
-        const exchange: *Exchange = @alignCast(@fieldParentPtr("data", @as(*Data, @alignCast(@fieldParentPtr("interface", w)))));
-        try w.defaultFlush();
-        exchange.writer.interface.flush() catch |err| {
-            if (exchange.writer.err) |cause| exchange.err = cause;
-            return err;
-        };
+    fn write(exchange: *Exchange, bytes: []const u8) Io.Writer.Error!void {
+        var taken: usize = 0;
+        while (taken < bytes.len) {
+            taken += exchange.station.drive(Writing{ .exchange = exchange, .bytes = bytes[taken..] }, step) catch |err| {
+                exchange.err = err;
+                return error.WriteFailed;
+            };
+        }
+    }
+
+    fn step(writing: Writing) Session.Error!?usize {
+        const taken = try writing.exchange.session.writeBody(writing.exchange.stream, writing.bytes);
+        return if (taken == 0) null else taken;
     }
 };

@@ -347,64 +347,33 @@ pub const Stream = struct {
         stream.connection.closeStream(stream.id, code);
         station.ask();
     }
-
-    /// A reader of the stream, its bytes read into `buffer` as they come.
-    pub fn reader(stream: Stream, buffer: []u8) Reader {
-        return .{ .stream = stream, .interface = .{ .vtable = &.{ .stream = Reader.streamOut }, .buffer = buffer, .seek = 0, .end = 0 } };
-    }
-
-    /// A writer of the stream, what is written gathered in `buffer` till it fills or is flushed.
-    pub fn writer(stream: Stream, buffer: []u8) Writer {
-        return .{ .stream = stream, .interface = .{ .vtable = &.{ .drain = Writer.drain }, .buffer = buffer } };
-    }
-
-    pub const Reader = struct {
-        stream: Stream,
-        interface: Io.Reader,
-        /// Why a read failed, where one did.
-        err: ?Stream.Error = null,
-
-        fn streamOut(r: *Io.Reader, w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
-            const reading: *Reader = @alignCast(@fieldParentPtr("interface", r));
-            const into = limit.slice(try w.writableSliceGreedy(1));
-            const length = reading.stream.read(into) catch |err| {
-                reading.err = err;
-                return error.ReadFailed;
-            } orelse return error.EndOfStream;
-            w.advance(length);
-            return length;
-        }
-    };
-
-    pub const Writer = struct {
-        stream: Stream,
-        interface: Io.Writer,
-        /// Why a write failed, where one did.
-        err: ?Stream.Error = null,
-
-        fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
-            const writing: *Writer = @alignCast(@fieldParentPtr("interface", w));
-            try writing.send(w.buffered());
-            w.end = 0;
-            var written: usize = 0;
-            for (data[0 .. data.len - 1]) |bytes| {
-                try writing.send(bytes);
-                written += bytes.len;
-            }
-            const last = data[data.len - 1];
-            for (0..splat) |_| try writing.send(last);
-            return written + last.len * splat;
-        }
-
-        fn send(writing: *Writer, bytes: []const u8) Io.Writer.Error!void {
-            if (bytes.len == 0) return;
-            writing.stream.write(bytes) catch |err| {
-                writing.err = err;
-                return error.WriteFailed;
-            };
-        }
-    };
 };
+
+/// Runs `step` on `context` under the station's lock — which holds its sessions and their streams — till it gives an
+/// answer, waiting for the loop's work between tries, as a driver of a session's state waits on it: `step` gives null
+/// to wait. Where a try left the endpoint something to do now, the loop is asked to.
+pub fn drive(station: *Station, context: anytype, comptime step: anytype) Driven(@TypeOf(step)) {
+    station.lock.lockUncancelable(station.io);
+    defer station.lock.unlock(station.io);
+    while (true) {
+        const answer = step(context);
+        station.askIfDue();
+        if (try answer) |given| return given;
+        try station.waitChanged();
+    }
+}
+
+/// What `drive` gives for a step of type `Step`: its answer, or its error or the station's.
+fn Driven(comptime Step: type) type {
+    const returned = @typeInfo(@typeInfo(Step).@"fn".return_type.?).error_union;
+    return (returned.error_set || Error)!@typeInfo(returned.payload).optional.child;
+}
+
+/// Asks the loop to work, the lock held, where the endpoint has something to do now.
+fn askIfDue(station: *Station) void {
+    const now = nowOf(station.io);
+    if (station.endpoint.wakeTime(now) <= now) station.ask();
+}
 
 /// Asks the loop to work, the lock held.
 fn ask(station: *Station) void {
