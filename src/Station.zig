@@ -3,7 +3,9 @@
 //! the relays and the time, sends what the endpoint has to send — gathered by peer into frames for their relays — and
 //! waits for whichever comes first, more to take or the time the endpoint asked to be called at. The station's lock
 //! holds the endpoint and all it holds: the loop holds it as it works, and a task using a session or a stream takes it,
-//! waiting on what the loop's work changes.
+//! waiting on what the loop's work changes. A station stays on each relay it joined: a task of the relay's reads its
+//! link and, where the link ends, joins again, waiting longer after each failure, so the station's sessions through
+//! the relay go on once it is back.
 const Station = @This();
 const std = @import("std");
 const Endpoint = @import("Endpoint.zig");
@@ -39,12 +41,21 @@ loop: ?Io.Future(void) = null,
 /// How often a station pings each relay it is on, in microseconds; a relay answers without waking.
 const ping_interval: u64 = 30 * std.time.us_per_s;
 
-/// A relay the station is on: its link, the task reading it, and when it is next pinged.
+/// How long a station waits before it joins a relay again after its link ended, in microseconds: the shortest wait,
+/// doubled after each failure up to the longest.
+const rejoin_first: u64 = 250 * std.time.us_per_ms;
+const rejoin_longest: u64 = 30 * std.time.us_per_s;
+
+/// A relay the station is on: where it is and the home joined there; its link, none while the station joins again; the
+/// task keeping it; and when it is next pinged.
 const Relay = struct {
-    link: *relay.Link,
-    reader: ?Io.Future(void) = null,
+    address: []const u8,
+    home: Key,
+    link: ?*relay.Link,
+    /// Taken to send on the link and to change it, so no link goes while it is written.
+    lock: Io.Mutex = .init,
+    keeper: ?Io.Future(void) = null,
     next_ping: u64,
-    open: bool = true,
 };
 
 /// A frame a relay sent, in the station's allocator.
@@ -70,7 +81,7 @@ pub fn init(allocator: std.mem.Allocator, io: Io, identity: Identity, options: E
     return station;
 }
 
-/// Stops the station: its loop, its relays' readers and links, and every session it holds.
+/// Stops the station: its loop, its relays' keepers and links, and every session it holds.
 pub fn deinit(station: *Station) void {
     const io = station.io;
     const allocator = station.allocator;
@@ -80,11 +91,15 @@ pub fn deinit(station: *Station) void {
     station.changed.broadcast(io);
     station.lock.unlock(io);
     if (station.loop) |*loop| loop.await(io);
-    // A relay's reader ends as its link is shut down, reading its end.
+    // A relay's keeper ends as it finds the station stopping: reading, as its link is shut down; waiting to join again,
+    // as it is woken; joining, as it is canceled.
     for (station.relays.items) |each| {
-        each.link.shutdown();
-        if (each.reader) |*reader| reader.await(io);
-        each.link.close();
+        each.lock.lockUncancelable(io);
+        if (each.link) |link| link.shutdown();
+        each.lock.unlock(io);
+        if (each.keeper) |*keeper| keeper.cancel(io);
+        if (each.link) |link| link.close();
+        allocator.free(each.address);
         allocator.destroy(each);
     }
     station.relays.deinit(allocator);
@@ -103,14 +118,15 @@ fn nowOf(io: Io) u64 {
     return @intCast(Io.Timestamp.now(io, .awake).toMicroseconds());
 }
 
-/// Puts the station on the relay at `address`, in the home of `home`: the relay's number, by which sessions reach
-/// peers through it.
+/// Puts the station on the relay at `address`, in the home of `home`, for as long as the station lasts: the relay's
+/// number, by which sessions reach peers through it.
 pub fn join(station: *Station, address: []const u8, home: Key) (relay.Link.Error || Error)!u16 {
     const link = try relay.Link.open(&station.client, address, home, station.endpoint.identity);
     errdefer link.close();
     const joined = try station.allocator.create(Relay);
     errdefer station.allocator.destroy(joined);
-    joined.* = .{ .link = link, .next_ping = nowOf(station.io) + ping_interval };
+    joined.* = .{ .address = try station.allocator.dupe(u8, address), .home = home, .link = link, .next_ping = nowOf(station.io) + ping_interval };
+    errdefer station.allocator.free(joined.address);
     station.lock.lockUncancelable(station.io);
     const number: u16 = @intCast(station.relays.items.len);
     station.relays.append(station.allocator, joined) catch |err| {
@@ -118,34 +134,78 @@ pub fn join(station: *Station, address: []const u8, home: Key) (relay.Link.Error
         return err;
     };
     station.lock.unlock(station.io);
-    joined.reader = station.io.concurrent(readRelay, .{ station, joined, number }) catch null;
+    joined.keeper = station.io.concurrent(keepRelay, .{ station, joined, number }) catch null;
     return number;
 }
 
+/// Keeps the station on a relay till the station stops: its link read, and the relay joined again where the link ends.
+fn keepRelay(station: *Station, kept: *Relay, number: u16) void {
+    while (true) {
+        station.readRelay(kept.link.?, number);
+        kept.lock.lockUncancelable(station.io);
+        const ended = kept.link.?;
+        kept.link = null;
+        kept.lock.unlock(station.io);
+        ended.close();
+        if (!station.rejoin(kept)) return;
+    }
+}
+
 /// Reads a relay's link till it ends, handing its frames to the loop.
-fn readRelay(station: *Station, from: *Relay, number: u16) void {
+fn readRelay(station: *Station, link: *relay.Link, number: u16) void {
     const io = station.io;
     while (true) {
-        const received = from.link.receive() catch break;
+        const received = link.receive() catch return;
         switch (received) {
             .frame => |bytes| {
-                const owned = station.allocator.dupe(u8, bytes) catch break;
+                const owned = station.allocator.dupe(u8, bytes) catch return;
                 station.lock.lockUncancelable(io);
                 defer station.lock.unlock(io);
                 station.arrived.append(station.allocator, .{ .relay = number, .bytes = owned }) catch {
                     station.allocator.free(owned);
-                    break;
+                    return;
                 };
                 station.work.signal(io);
             },
             .pong => {},
-            .closed => break,
+            .closed => return,
         }
     }
-    station.lock.lockUncancelable(io);
-    defer station.lock.unlock(io);
-    from.open = false;
-    station.changed.broadcast(io);
+}
+
+/// Joins a relay again, its link ended, waiting before each try — longer after each that failed: whether it did,
+/// false where the station stops first.
+fn rejoin(station: *Station, kept: *Relay) bool {
+    var wait = rejoin_first;
+    while (station.pause(wait)) : (wait = @min(2 * wait, rejoin_longest)) {
+        const link = relay.Link.open(&station.client, kept.address, kept.home, station.endpoint.identity) catch continue;
+        station.lock.lockUncancelable(station.io);
+        defer station.lock.unlock(station.io);
+        if (station.stopping) {
+            link.close();
+            return false;
+        }
+        kept.lock.lockUncancelable(station.io);
+        kept.link = link;
+        kept.lock.unlock(station.io);
+        return true;
+    }
+    return false;
+}
+
+/// Waits `wait` microseconds: whether it did, false where the station stops first.
+fn pause(station: *Station, wait: u64) bool {
+    station.lock.lockUncancelable(station.io);
+    defer station.lock.unlock(station.io);
+    const until = nowOf(station.io) + wait;
+    while (!station.stopping) {
+        if (nowOf(station.io) >= until) return true;
+        station.changed.waitTimeout(station.io, &station.lock, deadlineOf(until)) catch |err| switch (err) {
+            error.Timeout => {},
+            error.Canceled => return false,
+        };
+    }
+    return false;
 }
 
 /// Opens a session to the peer of `peer` through relay `number`: the session once ready.
@@ -372,9 +432,8 @@ fn run(station: *Station) void {
         station.tellEvents();
         station.changed.broadcast(io);
         station.lock.unlock(io);
-        const failed = transmit(arena, transmissions);
+        station.transmit(transmissions);
         station.lock.lockUncancelable(io);
-        for (failed) |each| each.open = false;
         station.waitForWork();
     }
 }
@@ -420,7 +479,7 @@ fn gather(station: *Station, arena: std.mem.Allocator, now: u64) ![]const Transm
         try station.putFrames(arena, &transmissions, first.relay, first.key, datagrams.items);
     }
     for (station.relays.items) |each| {
-        if (!each.open or each.next_ping > now) continue;
+        if (each.next_ping > now) continue;
         each.next_ping = now + ping_interval;
         try transmissions.append(arena, .{ .relay = each, .bytes = null });
     }
@@ -438,15 +497,17 @@ fn putFrames(station: *Station, arena: std.mem.Allocator, transmissions: *std.Ar
     }
 }
 
-/// Sends each transmission on its relay's link, without the lock; the relays whose links failed.
-fn transmit(arena: std.mem.Allocator, transmissions: []const Transmission) []const *Relay {
-    var failed: std.ArrayList(*Relay) = .empty;
+/// Sends each transmission on its relay's link, without the station's lock: one for a relay being joined again is
+/// dropped, as a network drops what it cannot carry, and a link that fails is shut down, so its keeper joins again.
+fn transmit(station: *Station, transmissions: []const Transmission) void {
     for (transmissions) |transmission| {
-        if (!transmission.relay.open) continue;
-        const sent = if (transmission.bytes) |bytes| transmission.relay.link.send(bytes) else transmission.relay.link.ping();
-        sent catch failed.append(arena, transmission.relay) catch {};
+        const kept = transmission.relay;
+        kept.lock.lockUncancelable(station.io);
+        defer kept.lock.unlock(station.io);
+        const link = kept.link orelse continue;
+        const sent = if (transmission.bytes) |bytes| link.send(bytes) else link.ping();
+        sent catch link.shutdown();
     }
-    return failed.items;
 }
 
 /// Takes what happened to the endpoint's sessions: sessions peers opened wait to be accepted; ended ones no one holds
@@ -476,10 +537,13 @@ fn waitForWork(station: *Station) void {
     if (station.stopping or station.asked or station.arrived.items.len > 0) return;
     const now = nowOf(station.io);
     var wake = station.endpoint.wakeTime(now);
-    for (station.relays.items) |each| {
-        if (each.open) wake = @min(wake, each.next_ping);
-    }
+    for (station.relays.items) |each| wake = @min(wake, each.next_ping);
     if (wake <= now) return;
-    const timeout: Io.Timeout = if (wake == std.math.maxInt(u64)) .none else .{ .deadline = .{ .raw = .fromNanoseconds(@as(i96, wake) * std.time.ns_per_us), .clock = .awake } };
-    station.work.waitTimeout(station.io, &station.lock, timeout) catch {};
+    station.work.waitTimeout(station.io, &station.lock, deadlineOf(wake)) catch {};
+}
+
+/// The timeout of a wait till `until`, in microseconds by the clock `nowOf` reads.
+fn deadlineOf(until: u64) Io.Timeout {
+    if (until == std.math.maxInt(u64)) return .none;
+    return .{ .deadline = .{ .raw = .fromNanoseconds(@as(i96, until) * std.time.ns_per_us), .clock = .awake } };
 }

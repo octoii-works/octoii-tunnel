@@ -68,3 +68,37 @@ test "a device's station opens a session through the relay -Drelay names to a ma
     const address = @import("test_options").relay orelse return error.SkipZigTest;
     try expectSessionThrough(address);
 }
+
+test "a station joins a relay again where its link ends, and a session through the relay goes on" {
+    var running: scenario.RelayRunning = undefined;
+    try running.start();
+    defer running.stop();
+    const machine_identity = Identity.generate(testing.io);
+    const home = machine_identity.publicKey();
+    const machine = try Station.init(testing.allocator, testing.io, machine_identity, .{});
+    defer machine.deinit();
+    const device = try Station.init(testing.allocator, testing.io, Identity.generate(testing.io), .{});
+    defer device.deinit();
+    _ = try machine.join(running.address(), home);
+    const opened = try device.connect(home, try device.join(running.address(), home));
+    defer device.close(opened, 0);
+    const accepted = try machine.accept();
+    defer machine.close(accepted, 0);
+
+    // Another link of the machine's key displaces the station's, which joins again, displacing it in turn: the other
+    // link is the machine's till then, the device's datagrams coming to it.
+    const intruder = try running.open(home, machine_identity);
+    defer intruder.close();
+    while (try intruder.receive() != .closed) {}
+
+    const stream = try device.openStream(opened, .bidirectional);
+    defer stream.close(0);
+    try stream.write("after the relay dropped the machine");
+    try stream.shutdown();
+    const taken = try machine.acceptStream(accepted, .bidirectional);
+    defer taken.close(0);
+    var heard: std.ArrayList(u8) = .empty;
+    defer heard.deinit(testing.allocator);
+    try readAll(taken, &heard);
+    try testing.expectEqualStrings("after the relay dropped the machine", heard.items);
+}
