@@ -4,6 +4,7 @@ const std = @import("std");
 const Endpoint = @import("Endpoint.zig");
 const Connection = @import("Connection.zig");
 const Identity = @import("Identity.zig");
+const relay = @import("relay.zig");
 
 const testing = std.testing;
 const IpAddress = std.Io.net.IpAddress;
@@ -196,3 +197,39 @@ pub fn expectTransfer(link: anytype, server_at: IpAddress, server_identity: Iden
     link.client.endpoint.release(opened);
     link.server.endpoint.release(watched.server.connectionOf(.closed));
 }
+
+/// A relay of the tunnel's own serving on the loopback, a task of its own, and an HTTP client for peers' links to it.
+pub const RelayRunning = struct {
+    listener: std.Io.net.Server,
+    server: relay.Server,
+    serving: std.Io.Future(std.Io.Cancelable!void),
+    client: std.http.Client,
+    address_buffer: [32]u8,
+    address_length: usize,
+
+    pub fn start(running: *RelayRunning) !void {
+        const io = testing.io;
+        running.listener = try (try IpAddress.parseLiteral("127.0.0.1:0")).listen(io, .{});
+        running.server = .init(testing.allocator, io, "127.0.0.1");
+        running.serving = try io.concurrent(relay.Server.serve, .{ &running.server, &running.listener });
+        running.client = .{ .allocator = testing.allocator, .io = io };
+        running.address_length = (try std.fmt.bufPrint(&running.address_buffer, "ws://127.0.0.1:{d}", .{running.listener.socket.address.getPort()})).len;
+    }
+
+    pub fn stop(running: *RelayRunning) void {
+        const io = testing.io;
+        running.client.deinit();
+        _ = running.serving.cancel(io) catch {};
+        running.server.deinit();
+        running.listener.deinit(io);
+    }
+
+    /// The relay's address, as peers' links open it.
+    pub fn address(running: *const RelayRunning) []const u8 {
+        return running.address_buffer[0..running.address_length];
+    }
+
+    pub fn open(running: *RelayRunning, home: Identity.PublicKey, identity: Identity) relay.Link.Error!*relay.Link {
+        return relay.Link.open(&running.client, running.address(), home, identity);
+    }
+};

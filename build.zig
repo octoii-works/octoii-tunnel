@@ -17,7 +17,16 @@ pub fn build(b: *std.Build) void {
     const tunnel = b.addModule("tunnel", .{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{.{ .name = "quic", .module = header.mod }} });
     tunnel.linkLibrary(quic);
 
-    const tests = b.addTest(.{ .root_module = tunnel });
+    // The tests, on a module of their own that also knows the relay a test may be pointed at (`-Drelay`), which the
+    // stations' tests then reach as well as their own on the loopback.
+    const test_options = b.addOptions();
+    test_options.addOption(?[]const u8, "relay", b.option([]const u8, "relay", "A relay's address for the stations' tests to reach, as ws://host:port"));
+    const tested = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .link_libc = true, .imports = &.{
+        .{ .name = "quic", .module = header.mod },
+        .{ .name = "test_options", .module = test_options.createModule() },
+    } });
+    tested.linkLibrary(quic);
+    const tests = b.addTest(.{ .root_module = tested });
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run the tunnel's tests");
     test_step.dependOn(&run_tests.step);

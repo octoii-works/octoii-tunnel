@@ -3,41 +3,11 @@
 const std = @import("std");
 const Identity = @import("Identity.zig");
 const relay = @import("relay.zig");
+const scenario = @import("testing.zig");
 
 const testing = std.testing;
 const Io = std.Io;
 const Key = Identity.PublicKey;
-
-/// A relay serving on the loopback, a task of its own, and an HTTP client for peers' links to it.
-const Running = struct {
-    listener: Io.net.Server,
-    server: relay.Server,
-    serving: Io.Future(Io.Cancelable!void),
-    client: std.http.Client,
-    address: [32]u8,
-    address_length: usize,
-
-    fn start(running: *Running) !void {
-        const io = testing.io;
-        running.listener = try (try Io.net.IpAddress.parseLiteral("127.0.0.1:0")).listen(io, .{});
-        running.server = .init(testing.allocator, io, "127.0.0.1");
-        running.serving = try io.concurrent(relay.Server.serve, .{ &running.server, &running.listener });
-        running.client = .{ .allocator = testing.allocator, .io = io };
-        running.address_length = (try std.fmt.bufPrint(&running.address, "ws://127.0.0.1:{d}", .{running.listener.socket.address.getPort()})).len;
-    }
-
-    fn stop(running: *Running) void {
-        const io = testing.io;
-        running.client.deinit();
-        _ = running.serving.cancel(io) catch {};
-        running.server.deinit();
-        running.listener.deinit(io);
-    }
-
-    fn open(running: *Running, home: Key, identity: Identity) relay.Link.Error!*relay.Link {
-        return relay.Link.open(&running.client, running.address[0..running.address_length], home, identity);
-    }
-};
 
 fn sendDatagrams(link: *relay.Link, to: Key, datagram: []const u8) !void {
     var buffer: [256]u8 = undefined;
@@ -54,7 +24,7 @@ fn receiveFrame(link: *relay.Link) !relay.frame.Frame {
 }
 
 test "two peers' links to a relay carry each other's datagrams as from their senders, and a ping" {
-    var running: Running = undefined;
+    var running: scenario.RelayRunning = undefined;
     try running.start();
     defer running.stop();
     const machine = Identity.generate(testing.io);
@@ -84,7 +54,7 @@ test "two peers' links to a relay carry each other's datagrams as from their sen
 }
 
 test "a key joining a relay again displaces its earlier link" {
-    var running: Running = undefined;
+    var running: scenario.RelayRunning = undefined;
     try running.start();
     defer running.stop();
     const machine = Identity.generate(testing.io);

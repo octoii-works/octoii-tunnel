@@ -67,10 +67,17 @@ pub fn destroy(connection: *Connection) void {
     allocator.destroy(connection);
 }
 
-/// The identifier of a new stream of the session, one this endpoint opens by writing to it.
-pub fn openStream(connection: *Connection) error{Closed}!u64 {
+/// Opens a stream of the session: its identifier, the stream made at once, so the next one opened is another.
+pub fn openStream(connection: *Connection) error{ Closed, OutOfMemory }!u64 {
+    if (connection.state == .closed) return error.Closed;
     const cnx = connection.cnx orelse return error.Closed;
-    return c.picoquic_get_next_local_stream_id(cnx, 0);
+    const stream = c.picoquic_get_next_local_stream_id(cnx, 0);
+    const previous = connection.endpoint.enter(connection.endpoint.now);
+    defer host_.leave(previous);
+    // picoquic makes a stream as it is first marked; marked idle, it waits for what is written to it.
+    if (c.picoquic_mark_active_stream_v2(cnx, stream, 0) != 0) return error.OutOfMemory;
+    _ = try connection.streamOf(stream);
+    return stream;
 }
 
 /// Writes as much of `bytes` on `stream` as room there is, to be sent as the session can: how many it took, none
