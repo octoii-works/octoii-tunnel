@@ -14,8 +14,8 @@ const Connection = @import("Connection.zig");
 
 const IpAddress = std.Io.net.IpAddress;
 
-/// The protocol the tunnel's sessions speak, as their handshakes name it.
-pub const alpn = "octoii";
+/// The protocol the tunnel's sessions speak, as their handshakes name it: HTTP/3.
+pub const alpn = "h3";
 
 allocator: std.mem.Allocator,
 /// What the C libraries run on during the endpoint's calls into them: its allocator and its io.

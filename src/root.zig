@@ -6,6 +6,7 @@ pub const Endpoint = @import("Endpoint.zig");
 pub const Connection = @import("Connection.zig");
 pub const relay = @import("relay.zig");
 pub const Station = @import("Station.zig");
+pub const http3 = @import("http3.zig");
 
 test {
     _ = @import("host.zig");
@@ -21,4 +22,6 @@ test {
     _ = @import("websocket.zig");
     _ = @import("relay_link_test.zig");
     _ = @import("station_test.zig");
+    _ = http3;
+    _ = @import("http3_test.zig");
 }
