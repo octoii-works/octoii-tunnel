@@ -58,13 +58,19 @@ pub fn init(allocator: std.mem.Allocator, io: Io, uplink: Uplink, routes: Routes
     return .{ .allocator = allocator, .io = io, .uplink = uplink, .routes = routes };
 }
 
-/// Gives up every stream and waits for their tasks.
-pub fn deinit(forwarder: *Forwarder) void {
+/// Gives up every stream and waits for their tasks; no stream opens after. A frame may still be handed over, and is let
+/// go, till the forwarder is deinitialized.
+pub fn stop(forwarder: *Forwarder) void {
     forwarder.lock.lockUncancelable(forwarder.io);
     forwarder.stopping = true;
     forwarder.resetAll();
     forwarder.lock.unlock(forwarder.io);
     forwarder.tasks.await(forwarder.io) catch {};
+}
+
+/// Stops the forwarder where it was not, and lets it go. Nothing may hand it a frame any more.
+pub fn deinit(forwarder: *Forwarder) void {
+    forwarder.stop();
     forwarder.streams.deinit(forwarder.allocator);
 }
 
