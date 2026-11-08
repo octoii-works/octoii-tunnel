@@ -1,4 +1,3 @@
-node_modules/
-dist/
-.env*
-coverage/
+.zig-cache/
+zig-out/
+zig-pkg/

@@ -1,7 +1,6 @@
 name: Check
 
-# Runs the repository's checks on every push to main and on every pull request: format, lint, type check and tests,
-# the relay's on Bun and on Durable Objects among them.
+# Runs the tunnel's check on every push to main and on every pull request: its sources formatted, its tests passing.
 
 on:
   push:
@@ -17,10 +16,14 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: ./.github/actions/setup-bun
-      - name: Check
-        run: bun run check
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.17.1
+      - run: zig build check
