@@ -6,6 +6,7 @@ pub const Endpoint = @import("Endpoint.zig");
 pub const Connection = @import("Connection.zig");
 pub const relay = @import("relay.zig");
 pub const Station = @import("Station.zig");
+pub const Page = @import("Page.zig");
 pub const http3 = @import("http3.zig");
 
 // What the C libraries call — the allocations they make and the crypto they are given — is exported whatever of the
@@ -31,5 +32,6 @@ test {
     _ = @import("station_test.zig");
     _ = http3;
     _ = @import("http3_session_test.zig");
+    _ = @import("page_test.zig");
     _ = @import("http3_test.zig");
 }

@@ -63,6 +63,16 @@ pub fn writeFrame(writer: *std.Io.Writer, opcode: Opcode, payload: []const u8, m
     }
 }
 
+/// How many bytes the frame `bytes` begin with takes, once enough of it has come to tell; null till then.
+pub fn frameSize(bytes: []const u8) ?u64 {
+    if (bytes.len < 2) return null;
+    return switch (bytes[1] & 0x7f) {
+        126 => if (bytes.len < 4) null else 4 + @as(u64, std.mem.readInt(u16, bytes[2..4], .big)),
+        127 => if (bytes.len < 10) null else 10 +| std.mem.readInt(u64, bytes[2..10], .big),
+        else => |short| 2 + @as(u64, short),
+    };
+}
+
 /// A message read whole: its kind and its bytes — a text's or a binary's in the buffer it was gathered into, a ping's
 /// in the reading's own.
 pub const Message = union(enum) {

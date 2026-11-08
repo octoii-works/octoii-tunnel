@@ -48,11 +48,36 @@ pub fn build(b: *std.Build) void {
     const install_relay_worker = b.addInstallDirectory(.{ .source_dir = relay_worker.getDirectory(), .install_dir = .prefix, .install_subdir = "relay" });
     b.step("relay-worker", "Build the relay for Cloudflare Workers into relay/").dependOn(&install_relay_worker.step);
 
+    // The session for a browser: picoquic and picotls compiled for WebAssembly.
+    const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
+    const wasm_header: Translator = .init(b.dependency("translate_c", .{}), .{ .name = "quic", .c_source_file = b.path("src/quic.h"), .target = wasm_target, .optimize = .ReleaseSmall });
+    withQuicIncludes(b, wasm_header, picoquic, picotls, wasm_target);
+    // The C translator does not predefine it for WebAssembly, as a C compiler does; the C library's socket types need it.
+    wasm_header.defineCMacro("__BIGGEST_ALIGNMENT__", "16");
+    const session_wasm = b.addExecutable(.{ .name = "tunnel", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/tunnel_wasm.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+        .imports = &.{.{ .name = "quic", .module = wasm_header.mod }},
+    }) });
+    session_wasm.root_module.linkLibrary(quicLibrary(b, picoquic, picotls, wasm_target));
+    session_wasm.entry = .disabled;
+    session_wasm.rdynamic = true;
+    const page_client = b.addWriteFiles();
+    _ = page_client.addCopyFile(session_wasm.getEmittedBin(), "tunnel.wasm");
+    _ = page_client.addCopyFile(b.path("src/page/tunnel.js"), "tunnel.js");
+    _ = page_client.addCopyFile(b.path("src/page/tunnel.d.ts"), "tunnel.d.ts");
+    b.addNamedLazyPath("page-client", page_client.getDirectory());
+    const install_page_client = b.addInstallDirectory(.{ .source_dir = page_client.getDirectory(), .install_dir = .prefix, .install_subdir = "page" });
+    b.step("wasm", "Build the session for a browser into page/").dependOn(&install_page_client.step);
+
     const format = b.addFmt(.{ .paths = &.{ b.path("build.zig"), b.path("src") }, .check = true });
     const check_step = b.step("check", "Check the tunnel: its sources formatted and its tests passing");
     check_step.dependOn(&format.step);
     check_step.dependOn(&run_tests.step);
     check_step.dependOn(&install_relay_worker.step);
+    check_step.dependOn(&install_page_client.step);
 }
 
 /// picoquic's transport, as its own build lists it, without what the tunnel does itself: the sockets and their loops, the
