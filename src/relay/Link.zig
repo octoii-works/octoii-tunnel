@@ -70,10 +70,14 @@ fn upgrade(client: *std.http.Client, uri: std.Uri) Error!*std.http.Client.Connec
     request.sendBodiless() catch |err| return failed(err);
     const response = request.receiveHead(&.{}) catch |err| return failed(err);
     if (response.head.status != .switching_protocols) return error.Refused;
-    if (!accepts(response.head, &key)) return error.Transport;
-    // The connection speaks WebSocket from here: the request lets it go, and the link keeps it.
+    // The connection speaks WebSocket from here, whatever the head says: the request lets it go, which would wait
+    // for the end of a body it never has, and the link keeps it, or lets it go closed.
     const connection = request.connection.?;
     request.connection = null;
+    if (!accepts(response.head, &key)) {
+        release(client, connection);
+        return error.Transport;
+    }
     return connection;
 }
 

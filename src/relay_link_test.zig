@@ -64,3 +64,37 @@ test "a key joining a relay again displaces its earlier link" {
     defer later.close();
     try testing.expectEqual(relay.Link.Received.closed, try earlier.receive());
 }
+
+/// Answers one WebSocket handshake with an accept that does not answer its key, and keeps the connection open till the
+/// task serving it is canceled, as a broken or hostile server would.
+fn answerWrongly(listener: *Io.net.Server) Io.Cancelable!void {
+    const io = testing.io;
+    const stream = listener.accept(io) catch |err| switch (err) {
+        error.Canceled => return error.Canceled,
+        else => return,
+    };
+    defer stream.close(io);
+    var read_buffer: [4096]u8 = undefined;
+    var write_buffer: [256]u8 = undefined;
+    var reader = stream.reader(io, &read_buffer);
+    var writer = stream.writer(io, &write_buffer);
+    var http: std.http.Server = .init(&reader.interface, &writer.interface);
+    _ = http.receiveHead() catch return;
+    writer.interface.writeAll("HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: upgrade\r\nsec-websocket-accept: not-the-key's\r\n\r\n") catch return;
+    writer.interface.flush() catch return;
+    try io.sleep(.fromSeconds(3600), .awake);
+}
+
+test "a server that answers the handshake wrongly is refused at once, its connection let go" {
+    const io = testing.io;
+    var listener = try (try Io.net.IpAddress.parseLiteral("127.0.0.1:0")).listen(io, .{});
+    defer listener.deinit(io);
+    var serving = try io.concurrent(answerWrongly, .{&listener});
+    defer _ = serving.cancel(io) catch {};
+    var client: std.http.Client = .{ .allocator = testing.allocator, .io = io };
+    defer client.deinit();
+    var address: [32]u8 = undefined;
+    const relay_address = try std.fmt.bufPrint(&address, "ws://127.0.0.1:{d}", .{listener.socket.address.getPort()});
+    const machine = Identity.generate(io);
+    try testing.expectError(error.Transport, relay.Link.open(&client, relay_address, machine.publicKey(), machine));
+}
