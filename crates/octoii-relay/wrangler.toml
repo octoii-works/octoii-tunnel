@@ -1,0 +1,15 @@
+# The relay's Worker, as a local run and its tests take it; the hosted one is deployed by octoii-cloud, which wraps it.
+name = "octoii-relay"
+main = "build/index.js"
+compatibility_date = "2026-11-01"
+
+[build]
+command = "worker-build --release"
+
+[[durable_objects.bindings]]
+name = "HOMES"
+class_name = "Home"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Home"]

@@ -3,3 +3,5 @@
 //! home on Cloudflare keeps it, a Durable Object per machine.
 
 pub mod protocol;
+#[cfg(target_arch = "wasm32")]
+pub mod worker;
