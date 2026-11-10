@@ -9,7 +9,7 @@ use std::rc::Rc;
 use bytes::Bytes;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt as _, StreamExt as _};
-use octoii_tunnel::{EndpointAddr, Message, Peer, PublicKey, RelayUrl, SecretKey, Socket as TunnelSocket, Tunnel};
+use octoii_tunnel::{EndpointAddr, Message, Peer, PublicKey, RelayConfig, RelayUrl, SecretKey, Socket as TunnelSocket, Tunnel};
 use tokio::sync::Mutex;
 use wasm_bindgen::prelude::*;
 
@@ -53,7 +53,7 @@ impl Session {
         let relay: RelayUrl = relay.parse().map_err(failed)?;
         let machine: PublicKey = machine.parse().map_err(failed)?;
         let tunnel = Tunnel::builder(SecretKey::generate())
-            .relays(vec![relay.clone()])
+            .relays(vec![RelayConfig::new(relay.clone(), None)])
             .bind()
             .await
             .map_err(failed)?;

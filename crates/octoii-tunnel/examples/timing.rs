@@ -11,7 +11,7 @@ async fn main() {
     let at = Instant::now();
     let bind = |relay: iroh::RelayUrl| async move {
         Tunnel::builder(SecretKey::generate())
-            .relays(vec![relay])
+            .relays(vec![relay.into()])
             .trust(CaTlsConfig::insecure_skip_verify())
             .bind()
             .await

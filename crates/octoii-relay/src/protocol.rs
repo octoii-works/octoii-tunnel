@@ -13,6 +13,8 @@ pub const PROTOCOLS: [&str; 2] = ["iroh-relay-v2", "iroh-relay-v1"];
 /// The path of the relay's WebSocket, and of the probe a client measures its latency by.
 pub const RELAY_PATH: &str = "/relay";
 pub const PROBE_PATH: &str = "/ping";
+/// The path a client checks it is past no captive portal by, answered with no content.
+pub const PORTAL_PATH: &str = "/generate_204";
 
 /// The frame types a home reads and writes.
 mod types {

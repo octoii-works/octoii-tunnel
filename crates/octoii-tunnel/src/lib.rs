@@ -13,8 +13,8 @@ mod stream;
 mod tunnel;
 
 pub use iroh::tls::CaTlsConfig;
-pub use iroh::{EndpointAddr, PublicKey, RelayUrl, SecretKey};
-pub use peer::{Peer, PeerError};
+pub use iroh::{EndpointAddr, PublicKey, RelayConfig, RelayUrl, SecretKey};
+pub use peer::{Path, Peer, PeerError, Via};
 pub use serve::{Body, OnConnect, Remote};
 pub use socket::Socket;
 pub use stream::Stream;

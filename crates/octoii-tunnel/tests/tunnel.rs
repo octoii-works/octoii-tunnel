@@ -42,7 +42,7 @@ async fn handle(mut request: Request<Body>) -> Result<Response<Full<Bytes>>, Inf
 
 async fn place(relay: &iroh::RelayUrl) -> Tunnel {
     Tunnel::builder(SecretKey::generate())
-        .relays(vec![relay.clone()])
+        .relays(vec![relay.clone().into()])
         .trust(CaTlsConfig::insecure_skip_verify())
         .bind()
         .await

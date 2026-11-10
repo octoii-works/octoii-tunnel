@@ -10,7 +10,7 @@ use bytes::Bytes;
 use futures_util::{SinkExt as _, StreamExt as _};
 use http::{Method, Request, Response};
 use http_body_util::{BodyExt as _, Full};
-use octoii_tunnel::{Body, OnConnect, RelayUrl, SecretKey, Tunnel, socket};
+use octoii_tunnel::{Body, OnConnect, RelayConfig, RelayUrl, SecretKey, Tunnel, socket};
 
 async fn answer(mut request: Request<Body>) -> Result<Response<Full<Bytes>>, Infallible> {
     if request.method() == Method::CONNECT {
@@ -42,7 +42,7 @@ async fn answer(mut request: Request<Body>) -> Result<Response<Full<Bytes>>, Inf
 async fn main() {
     let relay: RelayUrl = std::env::var("RELAY").expect("RELAY names a relay").parse().expect("a URL");
     let machine = Tunnel::builder(SecretKey::generate())
-        .relays(vec![relay.clone()])
+        .relays(vec![RelayConfig::new(relay.clone(), None)])
         .bind()
         .await
         .expect("bound");

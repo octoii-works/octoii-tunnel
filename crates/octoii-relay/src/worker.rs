@@ -114,7 +114,7 @@ impl DurableObject for Home {
 }
 
 /// The relay's Worker: a client's WebSocket at `/relay` handed to the home of the host it came to, the probe at
-/// `/ping` answered at once.
+/// `/ping` answered at once, and `/generate_204` with no content, so a client knows it is past no captive portal.
 #[event(fetch)]
 async fn fetch(request: Request, env: Env, _context: Context) -> Result<Response> {
     let url = request.url()?;
@@ -125,6 +125,7 @@ async fn fetch(request: Request, env: Env, _context: Context) -> Result<Response
             home.fetch_with_request(request).await
         }
         protocol::PROBE_PATH => Response::ok(""),
+        protocol::PORTAL_PATH => Ok(Response::empty()?.with_status(204)),
         _ => Response::error("no such path", 404),
     }
 }

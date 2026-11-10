@@ -2,6 +2,8 @@
 //! sent over it at once on streams of their own, and a WebSocket opened by extended CONNECT, its stream handed over as
 //! the peer answers it with success.
 
+use std::time::Duration;
+
 use bytes::{Buf, Bytes, BytesMut};
 use h3::client::SendRequest;
 use h3::error::{ConnectionError, StreamError};
@@ -16,7 +18,23 @@ use crate::tunnel::TunnelError;
 #[derive(Clone)]
 pub struct Peer {
     key: PublicKey,
+    connection: Connection,
     requests: SendRequest<iroh_h3::OpenStreams, Bytes>,
+}
+
+/// The path a session sends on now: through what, and its round trip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Path {
+    pub via: Via,
+    pub rtt: Duration,
+}
+
+/// What a session's path goes through: straight to the peer's address, through the relay, or a transport of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Via {
+    Direct,
+    Relay,
+    Other,
 }
 
 impl std::fmt::Debug for Peer {
@@ -42,12 +60,27 @@ impl Peer {
         let key = connection.remote_id();
         let (mut driver, requests) = h3::client::builder()
             .enable_extended_connect(true)
-            .build::<_, _, Bytes>(iroh_h3::Connection::new(connection))
+            .build::<_, _, Bytes>(iroh_h3::Connection::new(connection.clone()))
             .await?;
         n0_future::task::spawn(async move {
             let _: ConnectionError = driver.wait_idle().await;
         });
-        Ok(Self { key, requests })
+        Ok(Self { key, connection, requests })
+    }
+
+    /// The path the session sends on now; none before it has one.
+    #[must_use]
+    pub fn path(&self) -> Option<Path> {
+        let paths = self.connection.paths();
+        let selected = paths.iter().find(iroh::endpoint::Path::is_selected)?;
+        let via = if selected.is_ip() {
+            Via::Direct
+        } else if selected.is_relay() {
+            Via::Relay
+        } else {
+            Via::Other
+        };
+        Some(Path { via, rtt: selected.rtt() })
     }
 
     /// Its key.

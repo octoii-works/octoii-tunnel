@@ -13,7 +13,7 @@ use bytes::Bytes;
 use futures_util::{SinkExt as _, StreamExt as _};
 use http::Request;
 use octoii_relay::protocol::{self, Challenge, Route};
-use octoii_tunnel::{EndpointAddr, RelayUrl, SecretKey, Tunnel};
+use octoii_tunnel::{EndpointAddr, RelayConfig, RelayUrl, SecretKey, Tunnel, Via};
 use tokio::sync::mpsc;
 
 /// A home in memory: each proved key's sender, and how many frames it forwarded.
@@ -81,6 +81,7 @@ async fn home() -> (RelayUrl, Home) {
     let router = axum::Router::new()
         .route(protocol::RELAY_PATH, get(relay))
         .route(protocol::PROBE_PATH, get(|| async { "" }))
+        .route(protocol::PORTAL_PATH, get(|| async { http::StatusCode::NO_CONTENT }))
         .with_state(home.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bound");
     let port = listener.local_addr().expect("an address").port();
@@ -92,12 +93,12 @@ async fn home() -> (RelayUrl, Home) {
 async fn the_tunnel_s_endpoints_prove_their_keys_to_a_home_and_reach_each_other_through_it() {
     let (url, home) = home().await;
     let machine = Tunnel::builder(SecretKey::generate())
-        .relays(vec![url.clone()])
+        .relays(vec![RelayConfig::new(url.clone(), None)])
         .bind()
         .await
         .expect("bound");
     let device = Tunnel::builder(SecretKey::generate())
-        .relays(vec![url.clone()])
+        .relays(vec![RelayConfig::new(url.clone(), None)])
         .bind()
         .await
         .expect("bound");
@@ -124,6 +125,15 @@ async fn the_tunnel_s_endpoints_prove_their_keys_to_a_home_and_reach_each_other_
     assert_eq!(answered.into_body(), Bytes::from_static(b"here"));
     assert!(home.forwarded.load(Ordering::Relaxed) > 0, "the home carried their first packets");
     assert_eq!(home.clients.lock().expect("held").len(), 2, "both proved their keys");
+    // Two places that can reach each other move their session off the relay, which told each where the other is.
+    let direct = async {
+        while peer.path().map(|path| path.via) != Some(Via::Direct) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), direct)
+        .await
+        .expect("a direct path in time");
     device.close().await;
     machine.close().await;
 }

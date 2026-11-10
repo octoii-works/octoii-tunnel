@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use http::Request;
-use octoii_tunnel::{EndpointAddr, RelayUrl, SecretKey, Tunnel};
+use octoii_tunnel::{EndpointAddr, RelayConfig, RelayUrl, SecretKey, Tunnel};
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs a relay's Worker running, named by OCTOII_RELAY"]
@@ -16,12 +16,12 @@ async fn a_machine_and_a_device_reach_each_other_through_the_worker() {
         .parse()
         .expect("a URL");
     let machine = Tunnel::builder(SecretKey::generate())
-        .relays(vec![url.clone()])
+        .relays(vec![RelayConfig::new(url.clone(), None)])
         .bind()
         .await
         .expect("bound");
     let device = Tunnel::builder(SecretKey::generate())
-        .relays(vec![url.clone()])
+        .relays(vec![RelayConfig::new(url.clone(), None)])
         .bind()
         .await
         .expect("bound");

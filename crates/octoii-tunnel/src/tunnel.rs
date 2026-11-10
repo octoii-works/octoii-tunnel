@@ -3,7 +3,7 @@
 
 use iroh::endpoint::{BindError, ConnectError, presets};
 use iroh::tls::CaTlsConfig;
-use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode, RelayUrl, SecretKey};
+use iroh::{Endpoint, EndpointAddr, PublicKey, RelayConfig, RelayMap, RelayMode, SecretKey};
 
 use crate::peer::Peer;
 
@@ -27,19 +27,20 @@ pub enum TunnelError {
     Http(#[from] h3::error::ConnectionError),
 }
 
-/// What a place on the tunnel is built of: its key, its relays — the first its home, the rest where peers' homes
-/// are — and the authorities whose certificates of relays it trusts.
+/// What a place on the tunnel is built of: its key, its relays — each by its address, and whether it tells a client
+/// its public address over QUIC, as a relay on a machine of its own does and one on Workers cannot — and the
+/// authorities whose certificates of relays it trusts.
 #[derive(Debug)]
 pub struct Builder {
     key: SecretKey,
-    relays: Vec<RelayUrl>,
+    relays: Vec<RelayConfig>,
     trust: Option<CaTlsConfig>,
 }
 
 impl Builder {
-    /// At home on `relays`, the first its home; reached directly alone, where none.
+    /// At home on the nearest of `relays`; reached directly alone, where none.
     #[must_use]
-    pub fn relays(mut self, relays: Vec<RelayUrl>) -> Self {
+    pub fn relays(mut self, relays: Vec<RelayConfig>) -> Self {
         self.relays = relays;
         self
     }
