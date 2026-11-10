@@ -1,0 +1,18 @@
+//! Octoii's tunnel: a machine and the devices that reach it, each known by its key, wherever each is. A machine waits at
+//! its home relay; a device dials it there by its key, and the session moves to a direct path where the two can reach
+//! each other, the relay kept as the path to fall back to. Between them, HTTP/3: the machine serves its HTTP service to
+//! every device that reaches it, each request knowing the key of the device that sent it, and a WebSocket is a request
+//! of extended CONNECT (RFC 9220) whose stream is handed over once answered.
+
+pub mod key;
+mod peer;
+mod serve;
+mod stream;
+mod tunnel;
+
+pub use iroh::tls::CaTlsConfig;
+pub use iroh::{EndpointAddr, PublicKey, RelayUrl, SecretKey};
+pub use peer::{Peer, PeerError};
+pub use serve::{Body, OnConnect, Remote};
+pub use stream::Stream;
+pub use tunnel::{ALPN, Builder, Tunnel, TunnelError};

@@ -1,0 +1,29 @@
+[package]
+name = "octoii-tunnel"
+description = "Octoii's tunnel: machines and devices reached by their keys, through a relay or directly, HTTP/3 between them"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes = "1.12.1"
+h3 = "0.0.8"
+http = "1.5.0"
+http-body = "1.1.0"
+http-body-util = "0.1.5"
+iroh = "1.4.1"
+iroh-h3 = "0.3.0"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt", "sync", "macros", "time", "io-util", "fs"] }
+tower-service = "0.3.3"
+
+[dev-dependencies]
+iroh = { version = "1.4.1", features = ["test-utils"] }
+tempfile = "3.27.0"
+tower = { version = "0.5.3", features = ["util"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
