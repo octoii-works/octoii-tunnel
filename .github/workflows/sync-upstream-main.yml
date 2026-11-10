@@ -1,3 +1,5 @@
+# Stored upstream so synced forks retain the same main history.
+# The personal fork alone runs this scheduled job.
 name: Sync upstream main
 
 on:
