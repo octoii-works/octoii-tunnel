@@ -44,7 +44,7 @@ impl Peer {
             .enable_extended_connect(true)
             .build::<_, _, Bytes>(iroh_h3::Connection::new(connection))
             .await?;
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             let _: ConnectionError = driver.wait_idle().await;
         });
         Ok(Self { key, requests })

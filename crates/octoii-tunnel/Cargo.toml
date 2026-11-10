@@ -16,14 +16,21 @@ h3 = "0.0.8"
 http = "1.5.0"
 http-body = "1.1.0"
 http-body-util = "0.1.5"
-iroh = "1.4.1"
+iroh = { version = "1.4.1", default-features = false, features = ["tls-ring"] }
 iroh-h3 = "0.3.0"
+n0-future = "0.3.2"
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["rt", "sync", "macros", "time", "io-util", "fs"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false }
+tokio = { version = "1.54.1", features = ["sync", "io-util"] }
 tower-service = "0.3.3"
 
+# What a machine's network gives that a browser's does not: mappings of its router's ports, and the fast datapath.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "portmapper", "fast-apple-datapath"] }
+
 [dev-dependencies]
+futures-util = "0.3.34"
 iroh = { version = "1.4.1", features = ["test-utils"] }
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time"] }

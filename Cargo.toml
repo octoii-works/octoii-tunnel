@@ -23,3 +23,11 @@ opt-level = 2
 # HTTP/3 at its newest commit: WebSocket over HTTP/3 (RFC 9220) is past its last release.
 [patch.crates-io]
 h3 = { git = "https://github.com/hyperium/h3", rev = "43745ad87e95b0c035ac9c547aad467303213425" }
+
+# The tunnel's WebAssembly is what a browser loads before it reaches a machine: optimized for size, linked whole.
+[profile.wasm]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

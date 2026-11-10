@@ -60,7 +60,7 @@ impl<S: RecvStream + Send + 'static> Receiving for h3::client::RequestStream<S, 
 pub(crate) fn carried(mut send: impl Sending, mut receive: impl Receiving) -> Stream {
     let (ours, theirs) = tokio::io::duplex(PIPE_BYTES);
     let (mut reading, mut writing) = tokio::io::split(ours);
-    tokio::spawn(async move {
+    n0_future::task::spawn(async move {
         let mut buffer = vec![0; PIPE_BYTES];
         loop {
             match reading.read(&mut buffer).await {
@@ -74,7 +74,7 @@ pub(crate) fn carried(mut send: impl Sending, mut receive: impl Receiving) -> St
         }
         let _ = send.finish().await;
     });
-    tokio::spawn(async move {
+    n0_future::task::spawn(async move {
         while let Ok(Some(bytes)) = receive.receive().await {
             if writing.write_all(&bytes).await.is_err() {
                 return;

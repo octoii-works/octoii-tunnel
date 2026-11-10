@@ -6,11 +6,11 @@ use std::convert::Infallible;
 use std::time::Duration;
 
 use bytes::Bytes;
+use futures_util::{SinkExt as _, StreamExt as _};
 use http::{Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt as _, Full};
 use iroh::test_utils::run_relay_server;
-use octoii_tunnel::{Body, CaTlsConfig, EndpointAddr, OnConnect, Remote, SecretKey, Tunnel};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use octoii_tunnel::{Body, CaTlsConfig, EndpointAddr, Message, OnConnect, Remote, SecretKey, Tunnel, socket};
 use tower::service_fn;
 
 /// Answers `/who` with the key of who asked; echoes a POST's body; and, for a CONNECT, echoes its stream.
@@ -19,10 +19,9 @@ async fn handle(mut request: Request<Body>) -> Result<Response<Full<Bytes>>, Inf
     if request.method() == Method::CONNECT {
         let connect = request.extensions_mut().remove::<OnConnect>().expect("a stream to come");
         tokio::spawn(async move {
-            let mut stream = connect.stream().await.expect("the stream");
-            let mut read = vec![0; 1024];
-            while let Ok(count) = stream.read(&mut read).await {
-                if count == 0 || stream.write_all(&read[..count]).await.is_err() {
+            let mut socket = socket::server(connect.stream().await.expect("the stream")).await;
+            while let Some(Ok(message)) = socket.next().await {
+                if message.is_close() || socket.send(message).await.is_err() {
                     break;
                 }
             }
@@ -84,11 +83,16 @@ async fn a_device_reaches_a_machine_by_its_key_and_relay_and_they_speak_http_3()
     assert_eq!(echoed.into_body(), big, "a megabyte both ways");
 
     let head = Request::builder().body(()).expect("a head");
-    let mut socket = peer.websocket("/ws", head).await.expect("connected");
-    socket.write_all(b"ping").await.expect("written");
-    let mut read = [0; 4];
-    socket.read_exact(&mut read).await.expect("read");
-    assert_eq!(&read, b"ping");
+    let mut socket = socket::client(peer.websocket("/ws", head).await.expect("connected")).await;
+    socket.send(Message::text("ping")).await.expect("sent");
+    let big = Message::binary(vec![1; 300 * 1024]);
+    socket.send(big.clone()).await.expect("sent");
+    assert_eq!(socket.next().await.expect("a message").expect("read"), Message::text("ping"));
+    assert_eq!(
+        socket.next().await.expect("a message").expect("read"),
+        big,
+        "a message past the pipe's bound, whole"
+    );
 
     device.close().await;
     machine.close().await;

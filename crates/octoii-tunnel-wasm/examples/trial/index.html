@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Tunnel trial</title>
+<pre id="out">running…</pre>
+<script type="module">
+import init, { Session } from "/package/octoii_tunnel_wasm.js";
+const report = {};
+const at = () => performance.now();
+try {
+  let t = at();
+  await init("/package/octoii_tunnel_wasm_bg.wasm");
+  report.loaded_ms = at() - t;
+  t = at();
+  const session = await Session.open("{relay}", "{machine}");
+  report.opened_ms = at() - t;
+  t = at();
+  const who = await session.request("GET", "/who", [], new Uint8Array());
+  report.first_request_ms = at() - t;
+  report.who = new TextDecoder().decode(who.body);
+  const big = new Uint8Array(1 << 20).map((_, i) => i % 251);
+  t = at();
+  const echoed = await session.request("POST", "/echo", ["content-type", "application/octet-stream"], big);
+  report.megabyte_both_ways_ms = at() - t;
+  report.echo_whole = echoed.body.length === big.length && echoed.body.every((b, i) => b === big[i]);
+  t = at();
+  const socket = await session.socket("/ws", []);
+  report.socket_opened_ms = at() - t;
+  t = at();
+  await socket.send_text("ping");
+  report.socket_echo = await socket.next();
+  report.socket_round_trip_ms = at() - t;
+  await socket.close();
+  await session.close();
+} catch (error) {
+  report.error = String(error);
+}
+document.getElementById("out").textContent = JSON.stringify(report, null, 2);
+await fetch("/report", { method: "POST", body: JSON.stringify(report) });
+</script>

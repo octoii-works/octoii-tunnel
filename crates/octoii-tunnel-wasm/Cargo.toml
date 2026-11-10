@@ -1,0 +1,33 @@
+[package]
+name = "octoii-tunnel-wasm"
+description = "Octoii's tunnel as WebAssembly, for a browser: a session to a machine, by the machine's key, through its relay — requests and WebSockets over HTTP/3"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bytes = "1.12.1"
+futures-util = { version = "0.3.34", features = ["sink"] }
+http = "1.5.0"
+octoii-tunnel = { path = "../octoii-tunnel" }
+tokio = { version = "1.54.1", features = ["sync"] }
+# What a page runs logs nothing: every log site compiled out.
+tracing = { version = "0.1.44", features = ["max_level_off", "release_max_level_off"] }
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+js-sys = "0.3.107"
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+axum = "0.8.9"
+futures-util = "0.3.34"
+http-body-util = "0.1.5"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net"] }
+tower = { version = "0.5.3", features = ["util"] }

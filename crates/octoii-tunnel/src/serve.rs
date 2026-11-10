@@ -72,7 +72,7 @@ impl Tunnel {
         B::Error: Send,
     {
         while let Some(incoming) = self.endpoint.accept().await {
-            tokio::spawn(session(incoming, service.clone()));
+            n0_future::task::spawn(session(incoming, service.clone()));
         }
     }
 }
@@ -95,7 +95,7 @@ where
     let Ok(mut http) = built else { return };
     while let Ok(Some(resolver)) = http.accept().await {
         let service = service.clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             let Ok((request, stream)) = resolver.resolve_request().await else {
                 return;
             };
@@ -127,7 +127,7 @@ where
     } else if let Some(mut receiving) = receive.take() {
         let (sender, body) = mpsc::channel(BODY_AHEAD);
         *request.body_mut() = Body(Some(body));
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             loop {
                 let read = receiving.receive().await.transpose();
                 let Some(read) = read else { return };

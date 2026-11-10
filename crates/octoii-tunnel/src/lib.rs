@@ -4,9 +4,11 @@
 //! every device that reaches it, each request knowing the key of the device that sent it, and a WebSocket is a request
 //! of extended CONNECT (RFC 9220) whose stream is handed over once answered.
 
+#[cfg(not(target_family = "wasm"))]
 pub mod key;
 mod peer;
 mod serve;
+pub mod socket;
 mod stream;
 mod tunnel;
 
@@ -14,5 +16,7 @@ pub use iroh::tls::CaTlsConfig;
 pub use iroh::{EndpointAddr, PublicKey, RelayUrl, SecretKey};
 pub use peer::{Peer, PeerError};
 pub use serve::{Body, OnConnect, Remote};
+pub use socket::Socket;
 pub use stream::Stream;
+pub use tokio_tungstenite::tungstenite::Message;
 pub use tunnel::{ALPN, Builder, Tunnel, TunnelError};
