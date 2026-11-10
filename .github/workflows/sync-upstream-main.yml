@@ -1,0 +1,55 @@
+name: Sync upstream main
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository_owner == 'devxiyang'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Fast-forward main from the organization repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="octoii-works/${GH_REPO#*/}"
+          actual="$(gh api "repos/$GH_REPO" --jq '.parent.full_name // empty')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::Expected upstream $expected, found $actual."
+            exit 1
+          fi
+
+          current="$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')"
+          comparison="$(gh api "repos/$GH_REPO/compare/$current...octoii-works:main")"
+          status="$(jq -r '.status' <<< "$comparison")"
+          case "$status" in
+            identical)
+              echo "main is already synchronized with $expected." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            ahead)
+              target="$(jq -er '.commits[-1].sha' <<< "$comparison")"
+              gh api --method PATCH "repos/$GH_REPO/git/refs/heads/main"                 --raw-field sha="$target" --field force=false --jq '.object.sha'
+              echo "Fast-forwarded main from $expected to $target." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            behind|diverged)
+              echo "::error::Fork main has commits absent from upstream. Resolve them manually before syncing."
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected comparison status: $status"
+              exit 1
+              ;;
+          esac
