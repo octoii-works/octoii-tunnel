@@ -161,7 +161,7 @@ impl Tunnel {
         #[cfg(not(target_family = "wasm"))]
         {
             let (ice, offering) = (self.ice.clone(), peer.clone());
-            n0_future::task::spawn(async move { offering.offer_ice(&ice).await });
+            n0_future::task::spawn(async move { ice.offer_to(offering).await });
         }
         Ok(peer)
     }

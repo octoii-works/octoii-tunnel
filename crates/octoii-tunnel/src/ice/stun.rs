@@ -152,35 +152,36 @@ impl Reflexive {
     }
 }
 
+/// A binding success of `transaction` saying `addr`, as a server writes one.
+#[cfg(test)]
+pub fn success(transaction: &Transaction, addr: SocketAddr) -> Vec<u8> {
+    let cookie = COOKIE.to_be_bytes();
+    let mut value = vec![0, if addr.is_ipv4() { 1 } else { 2 }];
+    value.extend((addr.port() ^ u16::from_be_bytes([cookie[0], cookie[1]])).to_be_bytes());
+    match addr.ip() {
+        IpAddr::V4(ip) => value.extend((u32::from(ip) ^ COOKIE).to_be_bytes()),
+        IpAddr::V6(ip) => {
+            let mut key = cookie.to_vec();
+            key.extend(transaction);
+            value.extend(ip.octets().iter().zip(key).map(|(byte, key)| byte ^ key));
+        }
+    }
+    // An attribute the client does not read, before the one it does.
+    let mut attributes = vec![0x80, 0x22, 0, 3, b'o', b'c', b't', 0];
+    attributes.extend(XOR_MAPPED_ADDRESS.to_be_bytes());
+    attributes.extend(u16::try_from(value.len()).expect("short").to_be_bytes());
+    attributes.extend(value);
+    let mut out = BINDING_SUCCESS.to_be_bytes().to_vec();
+    out.extend(u16::try_from(attributes.len()).expect("short").to_be_bytes());
+    out.extend(COOKIE.to_be_bytes());
+    out.extend(transaction);
+    out.extend(attributes);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A binding success of `transaction` saying `addr`, as a server writes one.
-    fn success(transaction: &Transaction, addr: SocketAddr) -> Vec<u8> {
-        let cookie = COOKIE.to_be_bytes();
-        let mut value = vec![0, if addr.is_ipv4() { 1 } else { 2 }];
-        value.extend((addr.port() ^ u16::from_be_bytes([cookie[0], cookie[1]])).to_be_bytes());
-        match addr.ip() {
-            IpAddr::V4(ip) => value.extend((u32::from(ip) ^ COOKIE).to_be_bytes()),
-            IpAddr::V6(ip) => {
-                let mut key = cookie.to_vec();
-                key.extend(transaction);
-                value.extend(ip.octets().iter().zip(key).map(|(byte, key)| byte ^ key));
-            }
-        }
-        // An attribute the client does not read, before the one it does.
-        let mut attributes = vec![0x80, 0x22, 0, 3, b'o', b'c', b't', 0];
-        attributes.extend(XOR_MAPPED_ADDRESS.to_be_bytes());
-        attributes.extend(u16::try_from(value.len()).expect("short").to_be_bytes());
-        attributes.extend(value);
-        let mut out = BINDING_SUCCESS.to_be_bytes().to_vec();
-        out.extend(u16::try_from(attributes.len()).expect("short").to_be_bytes());
-        out.extend(COOKIE.to_be_bytes());
-        out.extend(transaction);
-        out.extend(attributes);
-        out
-    }
 
     #[test]
     fn a_binding_success_tells_the_address_the_server_saw() {

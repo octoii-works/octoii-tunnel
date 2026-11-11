@@ -1,10 +1,11 @@
 //! A path between two places that cannot reach each other's addresses: ICE, as WebRTC punches through NATs, a data
 //! channel between them — unordered, never retransmitted — carrying the session's QUIC packets as a transport of the
 //! endpoint's own, so the session's multipath takes it beside the relay and picks the faster. The ICE of a session is
-//! negotiated over the session itself, the relay already carrying it: the side that dialled offers, by a request the
-//! other side's tunnel answers before its service sees anything; once the channel opens, the dialler's address lookup
-//! yields the peer's ICE address, and the session opens its path there. One task holds the UDP socket and every
-//! peer's WebRTC state, as their one owner.
+//! negotiated over the session itself, the relay already carrying it: the side that dialled opens a WebSocket the
+//! other side's tunnel answers before its service sees anything, and over it each side sends its description, then
+//! each candidate it finds after — trickled, as RFC 8838 has it, so a path is tried as soon as an address is known.
+//! Once the channel opens, the dialler's address lookup yields the peer's ICE address, and the session opens its path
+//! there. One task holds the UDP sockets and every peer's WebRTC state, as their one owner.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -24,14 +25,18 @@ use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio_tungstenite::tungstenite::Message;
+
+use crate::peer::Peer;
+use crate::socket::Socket;
 
 mod stun;
 
 /// The id of ICE among the endpoint's transports.
 pub const TRANSPORT: u64 = 0x0069_6365;
 
-/// The path of the request that carries a dialler's offer.
-pub const OFFER_PATH: &str = "/.octoii/ice";
+/// The path of the WebSocket a session's ICE is negotiated over.
+pub const SIGNALING_PATH: &str = "/.octoii/ice";
 
 /// The label of the channel the packets go over.
 const CHANNEL: &str = "quic";
@@ -57,21 +62,31 @@ fn key_of(addr: &CustomAddr) -> Option<PublicKey> {
 enum Order {
     Offer {
         peer: PublicKey,
-        reply: oneshot::Sender<Result<String, String>>,
+        reply: oneshot::Sender<Result<Described, String>>,
     },
     Answer {
         peer: PublicKey,
         offer: String,
-        reply: oneshot::Sender<Result<String, String>>,
+        reply: oneshot::Sender<Result<Described, String>>,
     },
     Accept {
         peer: PublicKey,
         answer: String,
     },
+    Candidate {
+        peer: PublicKey,
+        candidate: String,
+    },
     Send {
         peer: PublicKey,
         packet: Bytes,
     },
+}
+
+/// This side's part of a negotiation with a peer: its description, and each candidate it finds after, as found.
+pub(crate) struct Described {
+    sdp: String,
+    candidates: mpsc::UnboundedReceiver<String>,
 }
 
 /// A place's ICE: a handle to the task that holds it.
@@ -134,14 +149,14 @@ impl Ice {
     }
 
     /// An offer of ICE to the peer `peer`, to be sent to it.
-    pub(crate) async fn offer(&self, peer: PublicKey) -> Result<String, String> {
+    async fn offer(&self, peer: PublicKey) -> Result<Described, String> {
         let (reply, offered) = oneshot::channel();
         self.orders.send(Order::Offer { peer, reply }).map_err(|_| "ICE is stopped")?;
         offered.await.map_err(|_| "ICE is stopped")?
     }
 
     /// The answer to the peer `peer`'s offer `offer`.
-    pub(crate) async fn answer(&self, peer: PublicKey, offer: String) -> Result<String, String> {
+    async fn answer(&self, peer: PublicKey, offer: String) -> Result<Described, String> {
         let (reply, answered) = oneshot::channel();
         self.orders
             .send(Order::Answer { peer, offer, reply })
@@ -156,9 +171,74 @@ impl Ice {
     }
 
     /// Takes the peer `peer`'s answer to the offer made it.
-    pub(crate) fn accept(&self, peer: PublicKey, answer: String) {
+    fn accept(&self, peer: PublicKey, answer: String) {
         let _ = self.orders.send(Order::Accept { peer, answer });
     }
+
+    /// Takes a candidate the peer `peer` found after its description.
+    fn add_candidate(&self, peer: PublicKey, candidate: String) {
+        let _ = self.orders.send(Order::Candidate { peer, candidate });
+    }
+
+    /// Negotiates ICE with the peer `peer` dialled, as the side that offers, over a WebSocket of its session — kept
+    /// open for the candidates either side finds later.
+    pub(crate) async fn offer_to(&self, peer: Peer) -> Option<()> {
+        let key = peer.key();
+        let stream = peer.websocket(SIGNALING_PATH, http::Request::new(())).await.ok()?;
+        drop(peer);
+        let mut socket = crate::socket::client(stream).await;
+        let described = self.offer(key).await.ok()?;
+        futures_util::SinkExt::send(&mut socket, Message::text(described.sdp)).await.ok()?;
+        self.accept(key, next_text(&mut socket).await?);
+        self.trickled(key, socket, described.candidates).await;
+        Some(())
+    }
+
+    /// Negotiates ICE with the peer `peer` that dialled, as the side that answers, over `socket`.
+    async fn answer_over(&self, peer: PublicKey, mut socket: Socket) -> Option<()> {
+        let offer = next_text(&mut socket).await?;
+        let described = self.answer(peer, offer).await.ok()?;
+        futures_util::SinkExt::send(&mut socket, Message::text(described.sdp)).await.ok()?;
+        self.trickled(peer, socket, described.candidates).await;
+        Some(())
+    }
+
+    /// Carries candidates both ways over `socket` once the descriptions are given: each this side finds sent, each the
+    /// peer `peer` sends added — till either side lets go.
+    async fn trickled(&self, peer: PublicKey, mut socket: Socket, mut candidates: mpsc::UnboundedReceiver<String>) {
+        loop {
+            tokio::select! {
+                found = candidates.recv() => {
+                    let Some(found) = found else { return };
+                    if futures_util::SinkExt::send(&mut socket, Message::text(found)).await.is_err() {
+                        return;
+                    }
+                }
+                came = next_text(&mut socket) => {
+                    let Some(came) = came else { return };
+                    self.add_candidate(peer, came);
+                }
+            }
+        }
+    }
+}
+
+/// The next text message that comes over `socket`; none once it closes.
+async fn next_text(socket: &mut Socket) -> Option<String> {
+    loop {
+        match futures_util::StreamExt::next(socket).await? {
+            Ok(Message::Text(text)) => return Some(text.as_str().to_owned()),
+            Ok(Message::Close(_)) | Err(_) => return None,
+            Ok(_) => {}
+        }
+    }
+}
+
+/// The candidate of the socket at `local` seen from outside at `seen`; none where it is seen at its own address.
+fn reflexive(seen: SocketAddr, local: SocketAddr) -> Option<Candidate> {
+    (seen != local)
+        .then(|| Candidate::server_reflexive(seen, local, "udp").ok())
+        .flatten()
 }
 
 /// The interfaces' addresses a peer may reach the socket at: those the machine routes out by, and loopback.
@@ -174,11 +254,13 @@ fn host_addresses() -> Vec<IpAddr> {
     addresses
 }
 
-/// A peer's WebRTC state: its offer waiting for an answer, and its channel once open.
+/// A peer's WebRTC state: its offer waiting for an answer, its channel once open, and where the candidates found after
+/// its description go to be sent it.
 struct Peering {
     rtc: Rtc,
     pending: Option<SdpPendingOffer>,
     channel: Option<ChannelId>,
+    found: mpsc::UnboundedSender<String>,
 }
 
 /// A datagram that arrived: its bytes, where from, and the address of the socket it came to.
@@ -261,11 +343,15 @@ impl Agent {
     /// A datagram that arrived, handed to the peer whose state takes it — kept a while where none takes it yet; and
     /// each kept before tried again, as what came may have readied a peer to take it.
     fn received(&mut self, arrival: Arrival, due: &mut HashMap<PublicKey, Instant>) {
+        let before = self.reflexive.seen.clone();
         if self.reflexive.take(&arrival.datagram) {
             let mut seen: Vec<SocketAddr> = self.reflexive.seen.values().copied().collect();
             seen.sort();
             seen.dedup();
             self.told.send_if_modified(|told| std::mem::replace(told, seen.clone()) != seen);
+            let changed = self.reflexive.seen.iter().filter(|(local, seen)| before.get(*local) != Some(*seen));
+            let found: Vec<Candidate> = changed.filter_map(|(local, seen)| reflexive(*seen, *local)).collect();
+            self.found(&found, due);
             return;
         }
         if self.taken(&arrival, due) {
@@ -325,13 +411,36 @@ impl Agent {
             if let Ok(candidate) = Candidate::host(local, "udp") {
                 rtc.add_local_candidate(candidate);
             }
-            if let Some(seen) = self.reflexive.seen.get(&local).filter(|seen| **seen != local)
-                && let Ok(candidate) = Candidate::server_reflexive(*seen, local, "udp")
-            {
+            if let Some(candidate) = self.reflexive.seen.get(&local).and_then(|seen| reflexive(*seen, local)) {
                 rtc.add_local_candidate(candidate);
             }
         }
         rtc
+    }
+
+    /// The candidates `found` after the peers' descriptions were given, added to each peer's state and sent it.
+    fn found(&mut self, found: &[Candidate], due: &mut HashMap<PublicKey, Instant>) {
+        for peering in self.peers.values_mut() {
+            for candidate in found {
+                if let Some(added) = peering.rtc.add_local_candidate(candidate.clone()) {
+                    let _ = peering.found.send(added.to_sdp_string());
+                }
+            }
+        }
+        self.drained_all(due);
+    }
+
+    /// The peer `peer`'s state `rtc` kept, its description `sdp` given back with where its later candidates come.
+    fn peering(&mut self, peer: PublicKey, rtc: Rtc, pending: Option<SdpPendingOffer>, sdp: String) -> Described {
+        let (found, candidates) = mpsc::unbounded_channel();
+        let peering = Peering {
+            rtc,
+            pending,
+            channel: None,
+            found,
+        };
+        self.peers.insert(peer, peering);
+        Described { sdp, candidates }
     }
 
     fn ordered(&mut self, order: Order, due: &mut HashMap<PublicKey, Instant>) {
@@ -349,37 +458,14 @@ impl Agent {
                     let _ = reply.send(Err("nothing to offer".into()));
                     return;
                 };
-                self.peers.insert(
-                    peer,
-                    Peering {
-                        rtc,
-                        pending: Some(pending),
-                        channel: None,
-                    },
-                );
-                let _ = reply.send(Ok(offer.to_sdp_string()));
+                let _ = reply.send(Ok(self.peering(peer, rtc, Some(pending), offer.to_sdp_string())));
             }
             Order::Answer { peer, offer, reply } => {
                 let mut rtc = self.rtc();
                 let answered = SdpOffer::from_sdp_string(&offer)
                     .map_err(|error| error.to_string())
                     .and_then(|offer| rtc.sdp_api().accept_offer(offer).map_err(|error| error.to_string()));
-                match answered {
-                    Ok(answer) => {
-                        self.peers.insert(
-                            peer,
-                            Peering {
-                                rtc,
-                                pending: None,
-                                channel: None,
-                            },
-                        );
-                        let _ = reply.send(Ok(answer.to_sdp_string()));
-                    }
-                    Err(why) => {
-                        let _ = reply.send(Err(why));
-                    }
-                }
+                let _ = reply.send(answered.map(|answer| self.peering(peer, rtc, None, answer.to_sdp_string())));
             }
             Order::Accept { peer, answer } => {
                 let Some(peering) = self.peers.get_mut(&peer) else { return };
@@ -387,6 +473,12 @@ impl Agent {
                     return;
                 };
                 let _ = peering.rtc.sdp_api().accept_answer(pending, answer);
+            }
+            Order::Candidate { peer, candidate } => {
+                let Some(peering) = self.peers.get_mut(&peer) else { return };
+                if let Ok(candidate) = Candidate::from_sdp_string(&candidate) {
+                    peering.rtc.add_remote_candidate(candidate);
+                }
             }
             Order::Send { peer, packet } => {
                 let Some(peering) = self.peers.get_mut(&peer) else { return };
@@ -613,24 +705,28 @@ where
     }
 
     fn call(&mut self, request: http::Request<crate::Body>) -> Self::Future {
-        if request.uri().path() != OFFER_PATH || request.method() != http::Method::POST {
+        if request.uri().path() != SIGNALING_PATH || request.method() != http::Method::CONNECT {
             let answered = self.service.call(request);
             return Box::pin(async move { Ok(answered.await?.map(http_body_util::Either::Left)) });
         }
+        let (remote, connect) = (
+            request.extensions().get::<crate::Remote>(),
+            request.extensions().get::<crate::OnConnect>(),
+        );
+        let (Some(crate::Remote(peer)), Some(connect)) = (remote.copied(), connect.cloned()) else {
+            return Box::pin(std::future::ready(Ok(refused(
+                http::StatusCode::BAD_REQUEST,
+                "no peer's WebSocket",
+            ))));
+        };
         let ice = self.ice.clone();
-        Box::pin(async move {
-            let Some(crate::Remote(peer)) = request.extensions().get::<crate::Remote>().copied() else {
-                return Ok(refused(http::StatusCode::FORBIDDEN, "no peer"));
-            };
-            let body = http_body_util::BodyExt::collect(request.into_body()).await;
-            let Ok(offer) = body.map(|body| String::from_utf8_lossy(&body.to_bytes()).into_owned()) else {
-                return Ok(refused(http::StatusCode::BAD_REQUEST, "the offer was cut off"));
-            };
-            Ok(match ice.answer(peer, offer).await {
-                Ok(answer) => http::Response::new(http_body_util::Either::Right(http_body_util::Full::new(Bytes::from(answer)))),
-                Err(why) => refused(http::StatusCode::BAD_REQUEST, &why),
-            })
-        })
+        n0_future::task::spawn(async move {
+            let Some(stream) = connect.stream().await else { return };
+            ice.answer_over(peer, crate::socket::server(stream).await).await;
+        });
+        Box::pin(std::future::ready(Ok(http::Response::new(http_body_util::Either::Right(
+            http_body_util::Full::new(Bytes::new()),
+        )))))
     }
 }
 
@@ -640,4 +736,63 @@ fn refused<B>(status: http::StatusCode, why: &str) -> http::Response<http_body_u
     ))));
     *response.status_mut() = status;
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use net::SecretKey;
+
+    use super::*;
+
+    /// An agent of no sockets, asking the STUN server `server`, and where what it delivers goes.
+    fn agent(server: SocketAddr) -> Agent {
+        let (delivered, _) = mpsc::channel(1);
+        Agent {
+            early: std::collections::VecDeque::new(),
+            reflexive: stun::Reflexive::new(vec![server]),
+            told: watch::channel(Vec::new()).0,
+            sockets: Vec::new(),
+            peers: HashMap::new(),
+            delivered,
+            opened: watch::channel(HashSet::new()).0,
+        }
+    }
+
+    #[test]
+    fn a_candidate_found_after_an_offer_is_trickled_to_its_peer_and_one_it_sends_is_taken() {
+        let server: SocketAddr = "198.51.100.1:3478".parse().expect("an address");
+        let mut agent = agent(server);
+        let mut due = HashMap::new();
+        let peer = SecretKey::generate().public();
+        let (reply, mut offered) = oneshot::channel();
+        agent.ordered(Order::Offer { peer, reply }, &mut due);
+        let mut described = offered.try_recv().expect("offered").expect("an offer");
+        assert!(described.sdp.starts_with("v=0"), "a description");
+        assert!(described.candidates.try_recv().is_err(), "nothing found yet");
+
+        let local: SocketAddr = "192.168.1.2:5001".parse().expect("a LAN address");
+        let (_, _, request) = agent.reflexive.requests(&[local])[0];
+        let transaction: stun::Transaction = request[8..20].try_into().expect("an id");
+        let seen: SocketAddr = "203.0.113.9:40001".parse().expect("an address");
+        let answer = Arrival {
+            datagram: stun::success(&transaction, seen),
+            source: server,
+            destination: local,
+        };
+        agent.received(answer, &mut due);
+        let trickled = described.candidates.try_recv().expect("trickled");
+        let candidate = Candidate::from_sdp_string(&trickled).expect("a candidate");
+        assert_eq!((candidate.addr(), candidate.kind()), (seen, str0m::CandidateKind::ServerReflexive));
+        assert!(described.candidates.try_recv().is_err(), "once");
+
+        let theirs = Candidate::host("192.168.1.3:6001".parse().expect("an address"), "udp").expect("a candidate");
+        agent.ordered(
+            Order::Candidate {
+                peer,
+                candidate: theirs.to_sdp_string(),
+            },
+            &mut due,
+        );
+        assert!(agent.peers.contains_key(&peer), "still negotiating");
+    }
 }
