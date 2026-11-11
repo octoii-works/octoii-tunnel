@@ -106,6 +106,7 @@ impl Ice {
         let agent = Agent {
             sockets,
             peers: HashMap::new(),
+            early: std::collections::VecDeque::new(),
             delivered,
             opened,
         };
@@ -183,8 +184,16 @@ async fn read(socket: Arc<UdpSocket>, arrived: mpsc::Sender<Arrival>) {
     }
 }
 
-/// The task that holds every peer's WebRTC state, sending from a socket per local address.
+/// How long a datagram no peer takes yet is kept for one to take, as one comes to: a peer's first DTLS flight can come
+/// before this side's ICE says it is connected, and would wait out a retransmission otherwise.
+const EARLY_KEPT: Duration = Duration::from_secs(2);
+/// How many such datagrams are kept.
+const EARLY_MAX: usize = 64;
+
+/// The task that holds every peer's WebRTC state, sending from a socket per local address; and the datagrams no peer
+/// took yet.
 struct Agent {
+    early: std::collections::VecDeque<(Instant, Arrival)>,
     sockets: Vec<Arc<UdpSocket>>,
     peers: HashMap<PublicKey, Peering>,
     delivered: mpsc::Sender<(PublicKey, Bytes)>,
@@ -203,7 +212,7 @@ impl Agent {
             tokio::select! {
                 arrival = arrivals.recv() => {
                     let Some(arrival) = arrival else { return };
-                    self.received(&arrival, &mut due);
+                    self.received(arrival, &mut due);
                 }
                 order = orders.recv() => {
                     let Some(order) = order else { return };
@@ -223,10 +232,23 @@ impl Agent {
         }
     }
 
-    /// A datagram that arrived, handed to the peer whose state takes it.
-    fn received(&mut self, arrival: &Arrival, due: &mut HashMap<PublicKey, Instant>) {
-        let Ok(receive) = Receive::new(Protocol::Udp, arrival.source, arrival.destination, &arrival.datagram) else {
+    /// A datagram that arrived, handed to the peer whose state takes it — kept a while where none takes it yet; and
+    /// each kept before tried again, as what came may have readied a peer to take it.
+    fn received(&mut self, arrival: Arrival, due: &mut HashMap<PublicKey, Instant>) {
+        if self.taken(&arrival, due) {
+            self.retried(due);
             return;
+        }
+        if self.early.len() == EARLY_MAX {
+            self.early.pop_front();
+        }
+        self.early.push_back((Instant::now(), arrival));
+    }
+
+    /// Whether a peer's state took `arrival` — drained after — or it is no datagram any could take.
+    fn taken(&mut self, arrival: &Arrival, due: &mut HashMap<PublicKey, Instant>) -> bool {
+        let Ok(receive) = Receive::new(Protocol::Udp, arrival.source, arrival.destination, &arrival.datagram) else {
+            return true;
         };
         let input = Input::Receive(Instant::now(), receive);
         let peer = self
@@ -234,11 +256,21 @@ impl Agent {
             .iter()
             .find(|(_, peering)| peering.rtc.accepts(&input))
             .map(|(peer, _)| *peer);
-        let Some(peer) = peer else { return };
+        let Some(peer) = peer else { return false };
         if let Some(peering) = self.peers.get_mut(&peer) {
             let _ = peering.rtc.handle_input(input);
         }
         self.drained(peer, due);
+        true
+    }
+
+    /// The datagrams kept tried again: those a peer now takes taken, those past `EARLY_KEPT` let go of.
+    fn retried(&mut self, due: &mut HashMap<PublicKey, Instant>) {
+        for (at, arrival) in std::mem::take(&mut self.early) {
+            if at.elapsed() < EARLY_KEPT && !self.taken(&arrival, due) {
+                self.early.push_back((at, arrival));
+            }
+        }
     }
 
     /// A WebRTC state of this place's candidates.

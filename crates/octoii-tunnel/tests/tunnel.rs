@@ -140,7 +140,11 @@ async fn two_places_that_cannot_reach_each_other_s_addresses_move_their_session_
         }
     };
     tokio::time::timeout(Duration::from_secs(10), moved).await.expect("on ICE in time");
-    println!("on ICE after {:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "on ICE within a second, not after a retransmission: {:?}",
+        started.elapsed()
+    );
     let big = Bytes::from(vec![9; 1 << 20]);
     let echoed = peer
         .request(Request::post("/echo").body(big.clone()).expect("a request"))
