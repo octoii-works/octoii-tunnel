@@ -1,7 +1,7 @@
 name: Check
 
 # Runs the tunnel's checks on every push to main and on every pull request: its sources formatted, clippy's lints for
-# the machine and for WebAssembly, its tests passing.
+# the machine and — on Linux — for WebAssembly, its tests passing.
 
 on:
   push:
@@ -18,17 +18,22 @@ permissions:
 jobs:
   check:
     strategy:
+      # Each runner's result told, one failing or not.
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The toolchain rust-toolchain.toml names, with WebAssembly's target.
+      # The toolchain rust-toolchain.toml names.
       - run: rustup show active-toolchain || rustup toolchain install
-      - run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo clippy -p octoii-tunnel -p octoii-relay -p octoii-tunnel-wasm --target wasm32-unknown-unknown -- -D warnings
+      # WebAssembly is the same on every runner, so it is checked once, where the system's clang builds for it.
+      - if: runner.os == 'Linux'
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo clippy -p octoii-tunnel -p octoii-relay -p octoii-tunnel-wasm --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test
