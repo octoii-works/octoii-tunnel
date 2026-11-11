@@ -16,24 +16,45 @@ h3 = "0.0.8"
 http = "1.5.0"
 http-body = "1.1.0"
 http-body-util = "0.1.5"
-net = { package = "iroh", version = "1.4.1", default-features = false, features = ["tls-ring"] }
+futures-util = { version = "0.3.34", features = ["sink"] }
+net = { package = "iroh", version = "1.4.1", default-features = false, features = ["tls-ring", "unstable-custom-transports"] }
+net-base = { package = "iroh-base", version = "1.4.1", default-features = false, features = ["key"] }
+n0-watcher = "1.0.1"
+noq-udp = { version = "1.4.0", default-features = false }
 net-h3 = { package = "iroh-h3", version = "0.3.0" }
 n0-future = "0.3.2"
 thiserror = "2.0.21"
 tokio-tungstenite = { version = "0.30.0", default-features = false }
-tokio = { version = "1.54.1", features = ["sync", "io-util"] }
+tokio = { version = "1.54.1", features = ["sync", "io-util", "macros"] }
 tower-service = "0.3.3"
 
 # What a machine's network gives that a browser's does not: mappings of its router's ports, and the fast datapath.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 net = { package = "iroh", version = "1.4.1", default-features = false, features = ["tls-ring", "portmapper", "fast-apple-datapath", "unstable-custom-transports"] }
-futures-util = "0.3.34"
 getrandom = "0.4.3"
-net-base = { package = "iroh-base", version = "1.4.1", default-features = false, features = ["key"] }
-n0-watcher = "1.0.1"
-noq-udp = "1.4.0"
 str0m = { version = "0.25.0", default-features = false, features = ["rust-crypto"] }
 tokio = { version = "1.54.1", features = ["sync", "io-util", "net", "time", "rt"] }
+
+# A page's ICE is the browser's.
+[target.'cfg(target_family = "wasm")'.dependencies]
+js-sys = "0.3.107"
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+web-sys = { version = "0.3.107", features = [
+    "MessageEvent",
+    "RtcConfiguration",
+    "RtcDataChannel",
+    "RtcDataChannelInit",
+    "RtcDataChannelState",
+    "RtcDataChannelType",
+    "RtcIceCandidate",
+    "RtcIceCandidateInit",
+    "RtcIceServer",
+    "RtcPeerConnection",
+    "RtcPeerConnectionIceEvent",
+    "RtcSdpType",
+    "RtcSessionDescriptionInit",
+] }
 
 [dev-dependencies]
 futures-util = "0.3.34"

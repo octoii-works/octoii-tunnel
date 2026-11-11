@@ -2787,6 +2787,7 @@ dependencies = [
  "iroh",
  "iroh-base",
  "iroh-h3",
+ "js-sys",
  "n0-future",
  "n0-watcher",
  "noq-udp",
@@ -2797,6 +2798,9 @@ dependencies = [
  "tokio-tungstenite 0.30.0",
  "tower",
  "tower-service",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

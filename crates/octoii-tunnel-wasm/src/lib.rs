@@ -1,6 +1,6 @@
-//! The tunnel as WebAssembly, for a browser: a session to a machine, by the machine's key, through the machine's relay — a
-//! browser has no UDP, so the relay is its path — speaking HTTP/3 to it end to end, the relay seeing nothing of what
-//! they say. Each page reaches the machine as a key of its own, made for it and kept in memory, so the tabs of one
+//! The tunnel as WebAssembly, for a browser: a session to a machine, by the machine's key, through the machine's relay
+//! at first and then, where the browser's ICE punches through to it, over a data channel straight to it — speaking
+//! HTTP/3 to it end to end, the relay seeing nothing of what they say. Each page reaches the machine as a key of its own, made for it and kept in memory, so the tabs of one
 //! device never displace each other at the relay; the device proves who it is by its credential, in its requests, as it does
 //! to a machine on its own network. The machine's key is the one the pairing gave: no other answers as it.
 
@@ -9,7 +9,7 @@ use std::rc::Rc;
 use bytes::Bytes;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt as _, StreamExt as _};
-use octoii_tunnel::{EndpointAddr, Message, Peer, PublicKey, RelayConfig, RelayUrl, SecretKey, Socket as TunnelSocket, Tunnel};
+use octoii_tunnel::{EndpointAddr, Message, Peer, PublicKey, RelayConfig, RelayUrl, SecretKey, Socket as TunnelSocket, Tunnel, Via};
 use tokio::sync::Mutex;
 use wasm_bindgen::prelude::*;
 
@@ -19,6 +19,14 @@ use wasm_bindgen::prelude::*;
 pub struct Session {
     tunnel: Tunnel,
     peer: Peer,
+}
+
+/// The path a session sends on: `direct`, `relay` or `ice`, and its round trip in milliseconds.
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Debug)]
+pub struct Path {
+    pub via: String,
+    pub rtt_ms: f64,
 }
 
 /// A machine's answer: its status, its headers as name and value in turn, and its body.
@@ -62,6 +70,21 @@ impl Session {
             .await
             .map_err(failed)?;
         Ok(Self { tunnel, peer })
+    }
+
+    /// The path the session sends on now; none before it has one.
+    #[must_use]
+    pub fn path(&self) -> Option<Path> {
+        let path = self.peer.path()?;
+        let via = match path.via {
+            Via::Direct => "direct",
+            Via::Relay => "relay",
+            Via::Ice => "ice",
+        };
+        Some(Path {
+            via: via.to_owned(),
+            rtt_ms: path.rtt.as_secs_f64() * 1000.0,
+        })
     }
 
     /// The machine's key.

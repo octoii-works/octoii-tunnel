@@ -4,7 +4,6 @@
 //! every device that reaches it, each request knowing the key of the device that sent it, and a WebSocket is a request
 //! of extended CONNECT (RFC 9220) whose stream is handed over once answered.
 
-#[cfg(not(target_family = "wasm"))]
 pub mod ice;
 #[cfg(not(target_family = "wasm"))]
 pub mod key;

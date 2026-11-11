@@ -13,11 +13,10 @@ pub const ALPN: &[u8] = b"h3";
 /// The STUN server a place asks where its sockets are seen from outside, where it is told none.
 pub const STUN_SERVER: &str = "stun.cloudflare.com:3478";
 
-/// A place on the tunnel, and its ICE where it has its own sockets.
+/// A place on the tunnel, and its ICE.
 #[derive(Debug, Clone)]
 pub struct Tunnel {
     pub(crate) endpoint: Endpoint,
-    #[cfg(not(target_family = "wasm"))]
     pub(crate) ice: crate::ice::Ice,
 }
 
@@ -30,8 +29,6 @@ pub enum TunnelError {
     Connect(#[from] ConnectError),
     #[error(transparent)]
     Http(#[from] h3::error::ConnectionError),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
 }
 
 /// What a place on the tunnel is built of: its key, its relays — each by its address, and whether it tells a client
@@ -97,17 +94,12 @@ impl Builder {
         if !self.direct {
             builder = builder.clear_ip_transports();
         }
-        #[cfg(not(target_family = "wasm"))]
-        let ice = crate::ice::Ice::start(self.key.public(), &self.stun).await?;
-        #[cfg(not(target_family = "wasm"))]
-        {
-            builder = builder
-                .add_custom_transport(std::sync::Arc::new(ice.clone()))
-                .address_lookup(ice.lookup());
-        }
+        let ice = crate::ice::Ice::start(self.key.public(), &self.stun);
+        builder = builder
+            .add_custom_transport(std::sync::Arc::new(ice.clone()))
+            .address_lookup(ice.lookup());
         Ok(Tunnel {
             endpoint: builder.bind().await?,
-            #[cfg(not(target_family = "wasm"))]
             ice,
         })
     }
@@ -138,9 +130,8 @@ impl Tunnel {
         self.endpoint.addr()
     }
 
-    /// Where its sockets are seen from outside, as STUN servers said: the addresses a peer behind another NAT reaches
-    /// it at, where its own NAT lets it.
-    #[cfg(not(target_family = "wasm"))]
+    /// Where it is seen from outside, as STUN servers said: the addresses a peer behind another NAT reaches it at,
+    /// where its own NAT lets it.
     #[must_use]
     pub fn seen_from_outside(&self) -> Vec<std::net::SocketAddr> {
         self.ice.seen_from_outside()
@@ -158,11 +149,8 @@ impl Tunnel {
     pub async fn connect(&self, addr: impl Into<EndpointAddr>) -> Result<Peer, TunnelError> {
         let connection = self.endpoint.connect(addr, ALPN).await?;
         let peer = Peer::open(connection).await?;
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let (ice, offering) = (self.ice.clone(), peer.clone());
-            n0_future::task::spawn(async move { ice.offer_to(offering).await });
-        }
+        let (ice, offering) = (self.ice.clone(), peer.clone());
+        n0_future::task::spawn(async move { ice.offer_to(offering).await });
         Ok(peer)
     }
 

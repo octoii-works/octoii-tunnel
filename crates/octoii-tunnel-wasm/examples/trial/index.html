@@ -30,6 +30,23 @@ try {
   report.socket_echo = await socket.next();
   report.socket_round_trip_ms = at() - t;
   await socket.close();
+  t = at();
+  while (session.path()?.via !== "ice" && at() - t < 5000) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  report.path = session.path()?.via;
+  report.on_ice_ms = at() - t;
+  t = at();
+  const again = await session.request("POST", "/echo", ["content-type", "application/octet-stream"], big);
+  report.megabyte_both_ways_on_ice_ms = at() - t;
+  report.echo_whole_on_ice = again.body.length === big.length && again.body.every((b, i) => b === big[i]);
+  const iceSocket = await session.socket("/ws", []);
+  t = at();
+  await iceSocket.send_text("ping");
+  report.socket_echo_on_ice = await iceSocket.next();
+  report.socket_round_trip_on_ice_ms = at() - t;
+  report.rtt_on_ice_ms = session.path()?.rtt_ms;
+  await iceSocket.close();
   await session.close();
 } catch (error) {
   report.error = String(error);

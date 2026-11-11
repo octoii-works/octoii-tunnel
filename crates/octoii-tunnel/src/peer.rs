@@ -29,12 +29,12 @@ pub struct Path {
     pub rtt: Duration,
 }
 
-/// What a session's path goes through: straight to the peer's address, through the relay, or a transport of its own.
+/// What a session's path goes through: straight to the peer's address, through the relay, or through NATs by ICE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Via {
     Direct,
     Relay,
-    Other,
+    Ice,
 }
 
 impl std::fmt::Debug for Peer {
@@ -78,7 +78,7 @@ impl Peer {
         } else if selected.is_relay() {
             Via::Relay
         } else {
-            Via::Other
+            Via::Ice
         };
         Some(Path { via, rtt: selected.rtt() })
     }

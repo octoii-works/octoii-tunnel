@@ -135,7 +135,7 @@ async fn two_places_that_cannot_reach_each_other_s_addresses_move_their_session_
     let peer = device.connect(addr).await.expect("reached");
     let started = std::time::Instant::now();
     let moved = async {
-        while peer.path().map(|path| path.via) != Some(octoii_tunnel::Via::Other) {
+        while peer.path().map(|path| path.via) != Some(octoii_tunnel::Via::Ice) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     };
@@ -151,7 +151,7 @@ async fn two_places_that_cannot_reach_each_other_s_addresses_move_their_session_
         .await
         .expect("answered");
     assert_eq!(echoed.into_body(), big, "a megabyte both ways over ICE");
-    assert_eq!(peer.path().map(|path| path.via), Some(octoii_tunnel::Via::Other));
+    assert_eq!(peer.path().map(|path| path.via), Some(octoii_tunnel::Via::Ice));
     device.close().await;
     machine.close().await;
 }
