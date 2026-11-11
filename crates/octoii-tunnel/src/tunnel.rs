@@ -10,6 +10,9 @@ use crate::peer::Peer;
 /// The protocol the tunnel's sessions speak: HTTP/3.
 pub const ALPN: &[u8] = b"h3";
 
+/// The STUN server a place asks where its sockets are seen from outside, where it is told none.
+pub const STUN_SERVER: &str = "stun.cloudflare.com:3478";
+
 /// A place on the tunnel, and its ICE where it has its own sockets.
 #[derive(Debug, Clone)]
 pub struct Tunnel {
@@ -40,6 +43,7 @@ pub struct Builder {
     relays: Vec<RelayConfig>,
     trust: Option<CaTlsConfig>,
     direct: bool,
+    stun: Vec<String>,
 }
 
 impl Builder {
@@ -54,6 +58,14 @@ impl Builder {
     #[must_use]
     pub fn trust(mut self, trust: CaTlsConfig) -> Self {
         self.trust = Some(trust);
+        self
+    }
+
+    /// Asking the STUN servers `stun`, by their names, where its sockets are seen from outside — none, asking none — in
+    /// place of `STUN_SERVER`.
+    #[must_use]
+    pub fn stun(mut self, stun: Vec<String>) -> Self {
+        self.stun = stun;
         self
     }
 
@@ -86,7 +98,7 @@ impl Builder {
             builder = builder.clear_ip_transports();
         }
         #[cfg(not(target_family = "wasm"))]
-        let ice = crate::ice::Ice::start(self.key.public()).await?;
+        let ice = crate::ice::Ice::start(self.key.public(), &self.stun).await?;
         #[cfg(not(target_family = "wasm"))]
         {
             builder = builder
@@ -110,6 +122,7 @@ impl Tunnel {
             relays: Vec::new(),
             trust: None,
             direct: true,
+            stun: vec![STUN_SERVER.to_owned()],
         }
     }
 
@@ -123,6 +136,14 @@ impl Tunnel {
     #[must_use]
     pub fn addr(&self) -> EndpointAddr {
         self.endpoint.addr()
+    }
+
+    /// Where its sockets are seen from outside, as STUN servers said: the addresses a peer behind another NAT reaches
+    /// it at, where its own NAT lets it.
+    #[cfg(not(target_family = "wasm"))]
+    #[must_use]
+    pub fn seen_from_outside(&self) -> Vec<std::net::SocketAddr> {
+        self.ice.seen_from_outside()
     }
 
     /// Waits till it is reached at its home relay.

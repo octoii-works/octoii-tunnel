@@ -25,6 +25,8 @@ use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
 
+mod stun;
+
 /// The id of ICE among the endpoint's transports.
 pub const TRANSPORT: u64 = 0x0069_6365;
 
@@ -79,17 +81,25 @@ pub struct Ice {
     orders: mpsc::UnboundedSender<Order>,
     received: Arc<Mutex<Option<Received>>>,
     open: watch::Receiver<HashSet<PublicKey>>,
+    outside: watch::Receiver<Vec<SocketAddr>>,
 }
 
 /// The packets that came over ICE, each with the key of the peer it came from, till the endpoint binds and takes them.
 type Received = mpsc::Receiver<(PublicKey, Bytes)>;
 
 impl Ice {
-    /// The ICE of the place of the key `own`, its UDP socket bound on every interface.
+    /// The ICE of the place of the key `own`, a UDP socket bound on each local address, asking the STUN servers
+    /// `stun` — by their names — where each is seen from outside.
     ///
     /// # Errors
     /// Where no UDP socket can be bound.
-    pub async fn start(own: PublicKey) -> std::io::Result<Self> {
+    pub async fn start(own: PublicKey, stun: &[String]) -> std::io::Result<Self> {
+        let mut servers = Vec::new();
+        for name in stun {
+            if let Ok(found) = tokio::net::lookup_host(name.as_str()).await {
+                servers.extend(found);
+            }
+        }
         let mut sockets = Vec::new();
         for ip in host_addresses() {
             if let Ok(socket) = UdpSocket::bind(SocketAddr::new(ip, 0)).await {
@@ -103,8 +113,11 @@ impl Ice {
         let (orders, taken) = mpsc::unbounded_channel();
         let (delivered, received) = mpsc::channel(RECEIVED_AHEAD);
         let (opened, open) = watch::channel(HashSet::new());
+        let (told, outside) = watch::channel(Vec::new());
         let agent = Agent {
+            told,
             sockets,
+            reflexive: stun::Reflexive::new(servers),
             peers: HashMap::new(),
             early: std::collections::VecDeque::new(),
             delivered,
@@ -116,6 +129,7 @@ impl Ice {
             orders,
             received: Arc::new(Mutex::new(Some(received))),
             open,
+            outside,
         })
     }
 
@@ -133,6 +147,12 @@ impl Ice {
             .send(Order::Answer { peer, offer, reply })
             .map_err(|_| "ICE is stopped")?;
         answered.await.map_err(|_| "ICE is stopped")?
+    }
+
+    /// Where this place's sockets are seen from outside, as STUN servers said.
+    #[must_use]
+    pub fn seen_from_outside(&self) -> Vec<SocketAddr> {
+        self.outside.borrow().clone()
     }
 
     /// Takes the peer `peer`'s answer to the offer made it.
@@ -194,6 +214,8 @@ const EARLY_MAX: usize = 64;
 /// took yet.
 struct Agent {
     early: std::collections::VecDeque<(Instant, Arrival)>,
+    reflexive: stun::Reflexive,
+    told: watch::Sender<Vec<SocketAddr>>,
     sockets: Vec<Arc<UdpSocket>>,
     peers: HashMap<PublicKey, Peering>,
     delivered: mpsc::Sender<(PublicKey, Bytes)>,
@@ -206,8 +228,9 @@ impl Agent {
         loop {
             let next = due
                 .values()
-                .min()
                 .copied()
+                .chain(self.reflexive.due())
+                .min()
                 .unwrap_or_else(|| Instant::now() + Duration::from_secs(1));
             tokio::select! {
                 arrival = arrivals.recv() => {
@@ -220,6 +243,9 @@ impl Agent {
                 }
                 () = tokio::time::sleep_until(next.into()) => {
                     let now = Instant::now();
+                    if self.reflexive.due().is_some_and(|at| at <= now) {
+                        self.asked_stun();
+                    }
                     let late: Vec<PublicKey> = due.iter().filter(|(_, at)| **at <= now).map(|(peer, _)| *peer).collect();
                     for peer in late {
                         if let Some(peering) = self.peers.get_mut(&peer) {
@@ -235,6 +261,13 @@ impl Agent {
     /// A datagram that arrived, handed to the peer whose state takes it — kept a while where none takes it yet; and
     /// each kept before tried again, as what came may have readied a peer to take it.
     fn received(&mut self, arrival: Arrival, due: &mut HashMap<PublicKey, Instant>) {
+        if self.reflexive.take(&arrival.datagram) {
+            let mut seen: Vec<SocketAddr> = self.reflexive.seen.values().copied().collect();
+            seen.sort();
+            seen.dedup();
+            self.told.send_if_modified(|told| std::mem::replace(told, seen.clone()) != seen);
+            return;
+        }
         if self.taken(&arrival, due) {
             self.retried(due);
             return;
@@ -273,12 +306,27 @@ impl Agent {
         }
     }
 
-    /// A WebRTC state of this place's candidates.
+    /// Asks the STUN servers where each socket is seen from outside, from that socket.
+    fn asked_stun(&mut self) {
+        let locals: Vec<SocketAddr> = self.sockets.iter().filter_map(|socket| socket.local_addr().ok()).collect();
+        for (local, server, request) in self.reflexive.requests(&locals) {
+            if let Some(socket) = self.sockets.iter().find(|socket| socket.local_addr().is_ok_and(|at| at == local)) {
+                let _ = socket.try_send_to(&request, server);
+            }
+        }
+    }
+
+    /// A WebRTC state of this place's candidates: each socket's address, and where it is seen from outside, where a
+    /// STUN server said and it is another.
     fn rtc(&self) -> Rtc {
         let mut rtc = Rtc::new(Instant::now());
         for socket in &self.sockets {
-            if let Ok(local) = socket.local_addr()
-                && let Ok(candidate) = Candidate::host(local, "udp")
+            let Ok(local) = socket.local_addr() else { continue };
+            if let Ok(candidate) = Candidate::host(local, "udp") {
+                rtc.add_local_candidate(candidate);
+            }
+            if let Some(seen) = self.reflexive.seen.get(&local).filter(|seen| **seen != local)
+                && let Ok(candidate) = Candidate::server_reflexive(*seen, local, "udp")
             {
                 rtc.add_local_candidate(candidate);
             }

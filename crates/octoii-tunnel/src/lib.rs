@@ -21,4 +21,4 @@ pub use serve::{Body, OnConnect, Remote};
 pub use socket::Socket;
 pub use stream::Stream;
 pub use tokio_tungstenite::tungstenite::Message;
-pub use tunnel::{ALPN, Builder, Tunnel, TunnelError};
+pub use tunnel::{ALPN, Builder, STUN_SERVER, Tunnel, TunnelError};
