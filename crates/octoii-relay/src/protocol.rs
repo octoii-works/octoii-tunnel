@@ -4,7 +4,7 @@
 //! the rest carried as it came, a ping answered with its pong, and a key not here told gone.
 
 use bytes::{BufMut, Bytes, BytesMut};
-use iroh_base::{PublicKey, Signature};
+use net_base::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 
 /// The subprotocols of the relay's WebSocket, newest first; a home answers with the first a client offers that it

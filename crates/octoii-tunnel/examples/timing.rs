@@ -7,9 +7,9 @@ use octoii_tunnel::{CaTlsConfig, EndpointAddr, SecretKey, Tunnel};
 
 #[tokio::main]
 async fn main() {
-    let (_map, relay, _server) = iroh::test_utils::run_relay_server().await.expect("a relay");
+    let (_map, relay, _server) = net::test_utils::run_relay_server().await.expect("a relay");
     let at = Instant::now();
-    let bind = |relay: iroh::RelayUrl| async move {
+    let bind = |relay: net::RelayUrl| async move {
         Tunnel::builder(SecretKey::generate())
             .relays(vec![relay.into()])
             .trust(CaTlsConfig::insecure_skip_verify())

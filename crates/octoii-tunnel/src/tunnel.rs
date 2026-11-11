@@ -1,9 +1,9 @@
 //! A place on the tunnel: the endpoint of a key, at home on its relays, which dials and is dialled by keys alone — no
 //! service outside is asked where a key is: a device knows the machine's key and relay from the pairing that gave them.
 
-use iroh::endpoint::{BindError, ConnectError, presets};
-use iroh::tls::CaTlsConfig;
-use iroh::{Endpoint, EndpointAddr, PublicKey, RelayConfig, RelayMap, RelayMode, SecretKey};
+use net::endpoint::{BindError, ConnectError, presets};
+use net::tls::CaTlsConfig;
+use net::{Endpoint, EndpointAddr, PublicKey, RelayConfig, RelayMap, RelayMode, SecretKey};
 
 use crate::peer::Peer;
 

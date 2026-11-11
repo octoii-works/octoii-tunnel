@@ -3,7 +3,7 @@
 //! attachment keeps where it stands — the challenge it was sent, till it proved its key; then its key — so the home
 //! needs no memory of its own across hibernation; a key that comes again displaces the socket it had.
 
-use iroh_base::PublicKey;
+use net_base::PublicKey;
 use serde::{Deserialize, Serialize};
 use worker::{
     Context, DurableObject, Env, Request, Response, Result, State, WebSocket, WebSocketIncomingMessage, WebSocketPair, durable_object,

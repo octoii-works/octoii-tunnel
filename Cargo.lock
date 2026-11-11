@@ -1824,7 +1824,7 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 [[package]]
 name = "iroh"
 version = "1.4.1"
-source = "git+https://github.com/octoii-works/iroh?rev=31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599#31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599"
+source = "git+https://github.com/octoii-works/iroh?rev=15222d834e2118a046975753d3e48aeb8537875e#15222d834e2118a046975753d3e48aeb8537875e"
 dependencies = [
  "axum",
  "backon",
@@ -1875,7 +1875,7 @@ dependencies = [
 [[package]]
 name = "iroh-base"
 version = "1.4.1"
-source = "git+https://github.com/octoii-works/iroh?rev=31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599#31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599"
+source = "git+https://github.com/octoii-works/iroh?rev=15222d834e2118a046975753d3e48aeb8537875e#15222d834e2118a046975753d3e48aeb8537875e"
 dependencies = [
  "curve25519-dalek",
  "data-encoding",
@@ -1893,7 +1893,7 @@ dependencies = [
 [[package]]
 name = "iroh-dns"
 version = "1.4.1"
-source = "git+https://github.com/octoii-works/iroh?rev=31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599#31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599"
+source = "git+https://github.com/octoii-works/iroh?rev=15222d834e2118a046975753d3e48aeb8537875e#15222d834e2118a046975753d3e48aeb8537875e"
 dependencies = [
  "arc-swap",
  "cfg_aliases",
@@ -1963,7 +1963,7 @@ dependencies = [
 [[package]]
 name = "iroh-relay"
 version = "1.4.1"
-source = "git+https://github.com/octoii-works/iroh?rev=31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599#31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599"
+source = "git+https://github.com/octoii-works/iroh?rev=15222d834e2118a046975753d3e48aeb8537875e#15222d834e2118a046975753d3e48aeb8537875e"
 dependencies = [
  "blake3",
  "bytes",

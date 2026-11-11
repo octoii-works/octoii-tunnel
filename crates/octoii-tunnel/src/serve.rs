@@ -13,8 +13,8 @@ use h3::error::StreamError;
 use http::{Method, Request, Response};
 use http_body::Frame;
 use http_body_util::BodyExt as _;
-use iroh::PublicKey;
-use iroh::endpoint::Incoming;
+use net::PublicKey;
+use net::endpoint::Incoming;
 use tokio::sync::{mpsc, oneshot};
 use tower_service::Service;
 
@@ -95,7 +95,7 @@ where
     let remote = Remote(connection.remote_id());
     let built = h3::server::builder()
         .enable_extended_connect(true)
-        .build::<_, Bytes>(iroh_h3::Connection::new(connection))
+        .build::<_, Bytes>(net_h3::Connection::new(connection))
         .await;
     let Ok(mut http) = built else { return };
     while let Ok(Some(resolver)) = http.accept().await {

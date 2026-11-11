@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use iroh::SecretKey;
+use net::SecretKey;
 
 /// The key the file at `path` keeps, made and kept there where it keeps none.
 ///

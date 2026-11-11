@@ -21,14 +21,14 @@ pedantic = { level = "warn", priority = -1 }
 opt-level = 2
 
 # HTTP/3 at its newest commit: WebSocket over HTTP/3 (RFC 9220) is past its last release.
-# The endpoint from our fork, its crates all from one commit: a custom transport's address found while connected opens
-# a path.
+# The endpoint from our fork of it, its crates all from one commit, upstream's names kept so merges from upstream stay
+# small: a custom transport's address found while connected opens a path. Our crates name it `net`.
 [patch.crates-io]
 h3 = { git = "https://github.com/hyperium/h3", rev = "43745ad87e95b0c035ac9c547aad467303213425" }
-iroh = { git = "https://github.com/octoii-works/iroh", rev = "31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599" }
-iroh-base = { git = "https://github.com/octoii-works/iroh", rev = "31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599" }
-iroh-dns = { git = "https://github.com/octoii-works/iroh", rev = "31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599" }
-iroh-relay = { git = "https://github.com/octoii-works/iroh", rev = "31b2c7d3f9fa333b8928a761ca7dbcd5dbbab599" }
+iroh = { git = "https://github.com/octoii-works/iroh", rev = "15222d834e2118a046975753d3e48aeb8537875e" }
+iroh-base = { git = "https://github.com/octoii-works/iroh", rev = "15222d834e2118a046975753d3e48aeb8537875e" }
+iroh-dns = { git = "https://github.com/octoii-works/iroh", rev = "15222d834e2118a046975753d3e48aeb8537875e" }
+iroh-relay = { git = "https://github.com/octoii-works/iroh", rev = "15222d834e2118a046975753d3e48aeb8537875e" }
 
 # The tunnel's WebAssembly is what a browser loads before it reaches a machine: optimized for size, linked whole.
 [profile.wasm]

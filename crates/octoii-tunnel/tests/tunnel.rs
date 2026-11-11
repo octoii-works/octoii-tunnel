@@ -9,7 +9,7 @@ use bytes::Bytes;
 use futures_util::{SinkExt as _, StreamExt as _};
 use http::{Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt as _, Full};
-use iroh::test_utils::run_relay_server;
+use net::test_utils::run_relay_server;
 use octoii_tunnel::{Body, CaTlsConfig, EndpointAddr, Message, OnConnect, Remote, SecretKey, Tunnel, socket};
 use tower::service_fn;
 
@@ -40,7 +40,7 @@ async fn handle(mut request: Request<Body>) -> Result<Response<Full<Bytes>>, Inf
     Ok(Response::new(Full::new(body)))
 }
 
-async fn place(relay: &iroh::RelayUrl) -> Tunnel {
+async fn place(relay: &net::RelayUrl) -> Tunnel {
     Tunnel::builder(SecretKey::generate())
         .relays(vec![relay.clone().into()])
         .trust(CaTlsConfig::insecure_skip_verify())

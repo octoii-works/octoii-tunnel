@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 /// A home in memory: each proved key's sender, and how many frames it forwarded.
 #[derive(Clone, Default)]
 struct Home {
-    clients: Arc<Mutex<HashMap<iroh_base::PublicKey, mpsc::UnboundedSender<Bytes>>>>,
+    clients: Arc<Mutex<HashMap<net_base::PublicKey, mpsc::UnboundedSender<Bytes>>>>,
     forwarded: Arc<AtomicUsize>,
 }
 

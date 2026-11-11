@@ -8,8 +8,8 @@ use bytes::{Buf, Bytes, BytesMut};
 use h3::client::SendRequest;
 use h3::error::{ConnectionError, StreamError};
 use http::{Method, Request, Response, StatusCode};
-use iroh::PublicKey;
-use iroh::endpoint::Connection;
+use net::PublicKey;
+use net::endpoint::Connection;
 
 use crate::stream::{Stream, carried};
 use crate::tunnel::TunnelError;
@@ -19,7 +19,7 @@ use crate::tunnel::TunnelError;
 pub struct Peer {
     key: PublicKey,
     connection: Connection,
-    requests: SendRequest<iroh_h3::OpenStreams, Bytes>,
+    requests: SendRequest<net_h3::OpenStreams, Bytes>,
 }
 
 /// The path a session sends on now: through what, and its round trip.
@@ -60,7 +60,7 @@ impl Peer {
         let key = connection.remote_id();
         let (mut driver, requests) = h3::client::builder()
             .enable_extended_connect(true)
-            .build::<_, _, Bytes>(iroh_h3::Connection::new(connection.clone()))
+            .build::<_, _, Bytes>(net_h3::Connection::new(connection.clone()))
             .await?;
         n0_future::task::spawn(async move {
             let _: ConnectionError = driver.wait_idle().await;
@@ -85,7 +85,7 @@ impl Peer {
     #[must_use]
     pub fn path(&self) -> Option<Path> {
         let paths = self.connection.paths();
-        let selected = paths.iter().find(iroh::endpoint::Path::is_selected)?;
+        let selected = paths.iter().find(net::endpoint::Path::is_selected)?;
         let via = if selected.is_ip() {
             Via::Direct
         } else if selected.is_relay() {

@@ -13,11 +13,11 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use iroh::address_lookup::{AddressLookup, EndpointData, EndpointInfo, Error as LookupError, Item};
-use iroh::endpoint::transports::{CustomEndpoint, CustomSender, CustomTransport, RecvInfo, Transmit};
-use iroh::{EndpointId, PublicKey, TransportAddr};
-use iroh_base::CustomAddr;
 use n0_future::boxed::BoxStream;
+use net::address_lookup::{AddressLookup, EndpointData, EndpointInfo, Error as LookupError, Item};
+use net::endpoint::transports::{CustomEndpoint, CustomSender, CustomTransport, RecvInfo, Transmit};
+use net::{EndpointId, PublicKey, TransportAddr};
+use net_base::CustomAddr;
 use str0m::change::{SdpAnswer, SdpOffer, SdpPendingOffer};
 use str0m::channel::{ChannelConfig, ChannelId, Reliability};
 use str0m::net::{Protocol, Receive};
