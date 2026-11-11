@@ -1,7 +1,8 @@
 //! A machine's home on Cloudflare: a Durable Object per machine, named by the host the machine is reached at, holding
 //! the sockets of the machine and of the devices that reach it, hibernating between their messages. Each socket's
 //! attachment keeps where it stands — the challenge it was sent, till it proved its key; then its key — so the home
-//! needs no memory of its own across hibernation; a key that comes again displaces the socket it had.
+//! needs no memory of its own across hibernation; a key that comes again displaces the socket it had. A home tells the
+//! keys on it to the host that runs it, which asks through its own binding.
 
 use net_base::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,18 @@ impl Home {
             .find(|socket| socket.deserialize_attachment::<Standing>().ok().flatten() == Some(Standing::Proved(*key.as_bytes())))
     }
 
+    /// The keys proved on this home now, as their text.
+    fn peers(&self) -> Vec<String> {
+        self.state
+            .get_websockets()
+            .into_iter()
+            .filter_map(|socket| match socket.deserialize_attachment::<Standing>().ok().flatten() {
+                Some(Standing::Proved(key)) => PublicKey::from_bytes(&key).ok().map(|key| key.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Takes the client of `socket`'s answer to its challenge: its key proved, and any socket it had before closed.
     fn proved(&self, socket: &WebSocket, challenge: Challenge, frame: &[u8]) -> Result<()> {
         let Ok(key) = challenge.verify(frame) else {
@@ -76,6 +89,9 @@ impl DurableObject for Home {
     }
 
     async fn fetch(&self, request: Request) -> Result<Response> {
+        if request.path() == protocol::PEERS_PATH {
+            return Response::from_json(&self.peers());
+        }
         let offered = request.headers().get("Sec-WebSocket-Protocol")?.unwrap_or_default();
         let chosen = offered.split(',').map(str::trim).find(|offer| protocol::PROTOCOLS.contains(offer));
         let pair = WebSocketPair::new()?;

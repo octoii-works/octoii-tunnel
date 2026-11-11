@@ -15,6 +15,9 @@ pub const RELAY_PATH: &str = "/relay";
 pub const PROBE_PATH: &str = "/ping";
 /// The path a client checks it is past no captive portal by, answered with no content.
 pub const PORTAL_PATH: &str = "/generate_204";
+/// The path a home tells the keys on it at, as the host that runs it asks who is there — reached through its own
+/// binding of the homes alone, never routed from outside.
+pub const PEERS_PATH: &str = "/peers";
 
 /// The frame types a home reads and writes.
 mod types {
