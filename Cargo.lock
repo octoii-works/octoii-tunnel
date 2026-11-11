@@ -2752,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "octoii-relay"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "axum",
  "blake3",
@@ -2775,7 +2775,7 @@ dependencies = [
 
 [[package]]
 name = "octoii-tunnel"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "bytes",
  "futures-util",
@@ -2805,7 +2805,7 @@ dependencies = [
 
 [[package]]
 name = "octoii-tunnel-wasm"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "axum",
  "bytes",

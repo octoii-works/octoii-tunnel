@@ -1,7 +1,7 @@
 [package]
 name = "octoii-tunnel-wasm"
 description = "Octoii's tunnel as WebAssembly, for a browser: a session to a machine, by the machine's key, through its relay — requests and WebSockets over HTTP/3"
-version = "0.1.0"
+version = "0.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

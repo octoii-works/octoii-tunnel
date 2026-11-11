@@ -1,7 +1,7 @@
 [package]
 name = "octoii-relay"
 description = "Octoii's relay on Cloudflare: a machine's home, a Durable Object, carrying datagrams between the machine and the devices that reach it, each known by its key"
-version = "0.1.0"
+version = "0.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
