@@ -62,15 +62,20 @@ impl http_body::Body for Body {
 const BODY_AHEAD: usize = 8;
 
 impl Tunnel {
-    /// Serves `service` to every peer that reaches this place, till it is closed.
+    /// Serves `service` to every peer that reaches this place, till it is closed — the ICE offers its peers send
+    /// answered before it, where the place has ICE.
     pub async fn serve<S, B>(&self, service: S)
     where
         S: Service<Request<Body>, Response = Response<B>, Error = Infallible> + Clone + Send + 'static,
-        S::Future: Send,
-        B: http_body::Body + Send + 'static,
-        B::Data: Send,
-        B::Error: Send,
+        S::Future: Send + 'static,
+        B: http_body::Body<Data = Bytes> + Send + 'static,
+        B::Error: std::error::Error + Send + Sync + 'static,
     {
+        #[cfg(not(target_family = "wasm"))]
+        let service = crate::ice::Answering {
+            ice: self.ice.clone(),
+            service,
+        };
         while let Some(incoming) = self.endpoint.accept().await {
             n0_future::task::spawn(session(incoming, service.clone()));
         }

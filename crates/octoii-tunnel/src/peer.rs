@@ -68,6 +68,19 @@ impl Peer {
         Ok(Self { key, connection, requests })
     }
 
+    /// Offers the peer ICE over the session, and takes its answer: a path through NATs to come, once its channel
+    /// opens.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) async fn offer_ice(&self, ice: &crate::ice::Ice) {
+        let Ok(offer) = ice.offer(self.key).await else { return };
+        let request = Request::post(crate::ice::OFFER_PATH).body(Bytes::from(offer));
+        let Ok(request) = request else { return };
+        let Ok(answer) = self.request(request).await else { return };
+        if answer.status().is_success() {
+            ice.accept(self.key, String::from_utf8_lossy(answer.body()).into_owned());
+        }
+    }
+
     /// The path the session sends on now; none before it has one.
     #[must_use]
     pub fn path(&self) -> Option<Path> {

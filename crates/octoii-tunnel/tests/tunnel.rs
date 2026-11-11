@@ -111,3 +111,43 @@ fn a_key_file_is_made_once_and_read_back_alike() {
         assert_eq!(std::fs::metadata(&path).expect("there").permissions().mode() & 0o777, 0o600);
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_places_that_cannot_reach_each_other_s_addresses_move_their_session_onto_ice() {
+    let (_map, relay, _server) = run_relay_server().await.expect("a relay");
+    let bound = || async {
+        Tunnel::builder(SecretKey::generate())
+            .relays(vec![relay.clone().into()])
+            .trust(CaTlsConfig::insecure_skip_verify())
+            .without_direct_paths()
+            .bind()
+            .await
+            .expect("bound")
+    };
+    let machine = bound().await;
+    let device = bound().await;
+    tokio::time::timeout(Duration::from_secs(10), machine.online())
+        .await
+        .expect("online in time");
+    let serving = machine.clone();
+    tokio::spawn(async move { serving.serve(service_fn(handle)).await });
+    let addr = EndpointAddr::new(machine.key()).with_relay_url(relay.clone());
+    let peer = device.connect(addr).await.expect("reached");
+    let started = std::time::Instant::now();
+    let moved = async {
+        while peer.path().map(|path| path.via) != Some(octoii_tunnel::Via::Other) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), moved).await.expect("on ICE in time");
+    println!("on ICE after {:?}", started.elapsed());
+    let big = Bytes::from(vec![9; 1 << 20]);
+    let echoed = peer
+        .request(Request::post("/echo").body(big.clone()).expect("a request"))
+        .await
+        .expect("answered");
+    assert_eq!(echoed.into_body(), big, "a megabyte both ways over ICE");
+    assert_eq!(peer.path().map(|path| path.via), Some(octoii_tunnel::Via::Other));
+    device.close().await;
+    machine.close().await;
+}

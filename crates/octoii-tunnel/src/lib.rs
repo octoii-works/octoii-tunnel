@@ -5,6 +5,8 @@
 //! of extended CONNECT (RFC 9220) whose stream is handed over once answered.
 
 #[cfg(not(target_family = "wasm"))]
+pub mod ice;
+#[cfg(not(target_family = "wasm"))]
 pub mod key;
 mod peer;
 mod serve;
